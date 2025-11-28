@@ -66,9 +66,11 @@ export default {
       }
 
       if (request.method === 'POST') {
-        // Respond immediately to WhatsApp (they require < 5s response)
+        // Read body BEFORE returning response (can't read stream after response sent)
+        const body = await request.json();
         // Process the message in the background
-        ctx.waitUntil(handleIncomingMessage(request, env));
+        ctx.waitUntil(handleIncomingMessage(body, env));
+        // Respond immediately to WhatsApp (they require < 5s response)
         return new Response('OK', { status: 200 });
       }
     }
@@ -98,9 +100,8 @@ function handleWebhookVerification(request: Request, env: Env): Response {
 // Incoming Message Handler (POST /webhook)
 // ============================================================================
 
-async function handleIncomingMessage(request: Request, env: Env): Promise<void> {
+async function handleIncomingMessage(body: unknown, env: Env): Promise<void> {
   try {
-    const body = await request.json();
     const payload = parseWebhookPayload(body);
 
     if (!payload) {
