@@ -26,7 +26,8 @@ import * as db from './db/queries';
 import {
   getConversation,
   addMessage,
-  formatMessagesForLLM
+  formatMessagesForLLM,
+  updateLastResponseId
 } from './utils/kv';
 
 // ============================================================================
@@ -210,7 +211,7 @@ async function processMessage(
     { role: 'user', content: message.text }
   );
 
-  // Run the AI agent
+  // Run the AI agent with caching options
   const agentResponse = await runAgent(
     env.OPENAI_API_KEY,
     env.DB,
@@ -220,15 +221,31 @@ async function processMessage(
       conversationSummary,
       conversationHistory: formatMessagesForLLM(conversation)
     },
-    message.text
+    message.text,
+    {
+      // Use previous response ID for conversation chaining (reduces tokens)
+      previousResponseId: conversation.lastResponseId,
+      // Use business ID for prompt cache key (better cache hits per business)
+      promptCacheKey: business.id
+    }
   );
 
   console.log('Agent response:', {
     messageLength: agentResponse.message.length,
     toolsCalled: agentResponse.toolsCalled,
     leadScoreChange: agentResponse.leadScoreChange,
-    flaggedForHuman: agentResponse.flaggedForHuman
+    flaggedForHuman: agentResponse.flaggedForHuman,
+    responseId: agentResponse.responseId
   });
+
+  // Store the response ID for future conversation chaining
+  await updateLastResponseId(
+    env.CONVERSATIONS,
+    business.id,
+    message.from,
+    lead.id,
+    agentResponse.responseId
+  );
 
   // Add a small delay to seem more human
   await simulateTypingDelay(agentResponse.message.length);

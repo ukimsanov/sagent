@@ -17,6 +17,7 @@ export interface ConversationState {
   messages: Message[];
   lastUpdated: number;
   leadId: string;
+  lastResponseId?: string; // OpenAI response ID for previous_response_id chaining
 }
 
 // ============================================================================
@@ -133,4 +134,24 @@ export function getConversationAge(conversation: ConversationState): number {
   const firstMessage = conversation.messages[0];
   const ageMs = Date.now() - firstMessage.timestamp;
   return ageMs / (1000 * 60 * 60);
+}
+
+/**
+ * Update the last OpenAI response ID for conversation chaining
+ */
+export async function updateLastResponseId(
+  kv: KVNamespace,
+  businessId: string,
+  whatsappNumber: string,
+  leadId: string,
+  responseId: string
+): Promise<void> {
+  const conversation = await getConversation(kv, businessId, whatsappNumber, leadId);
+  conversation.lastResponseId = responseId;
+  conversation.lastUpdated = Date.now();
+
+  const key = getConversationKey(businessId, whatsappNumber);
+  await kv.put(key, JSON.stringify(conversation), {
+    expirationTtl: CONVERSATION_TTL
+  });
 }

@@ -26,6 +26,7 @@ interface AgentResponse {
   toolsCalled: string[];
   leadScoreChange: number;
   flaggedForHuman: boolean;
+  responseId: string; // OpenAI response ID for conversation chaining
 }
 
 // Responses API types
@@ -68,6 +69,9 @@ interface ResponsesAPIResponse {
     input_tokens: number;
     output_tokens: number;
     total_tokens: number;
+    input_tokens_details?: {
+      cached_tokens: number;
+    };
   };
 }
 
@@ -79,7 +83,11 @@ export async function runAgent(
   openaiApiKey: string,
   database: D1Database,
   context: AgentContext,
-  userMessage: string
+  userMessage: string,
+  options?: {
+    previousResponseId?: string;
+    promptCacheKey?: string;
+  }
 ): Promise<AgentResponse> {
   const { business, lead, conversationSummary, conversationHistory } = context;
 
@@ -87,21 +95,62 @@ export async function runAgent(
   const instructions = buildSystemPrompt(business, lead, conversationSummary);
 
   // Build input array for Responses API
-  const input: ResponsesAPIInput[] = [
-    ...conversationHistory.map(msg => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content
-    })),
-    { role: 'user' as const, content: userMessage }
-  ];
+  // If we have a previous_response_id, OpenAI already has the conversation context
+  // so we only need to send the new user message (saves tokens!)
+  let input: ResponsesAPIInput[];
+  if (options?.previousResponseId) {
+    // Only send new message - OpenAI has the rest
+    input = [{ role: 'user' as const, content: userMessage }];
+    console.log('Using previous_response_id - sending only new message');
+  } else {
+    // First message or no stored response - send full history
+    input = [
+      ...conversationHistory.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      })),
+      { role: 'user' as const, content: userMessage }
+    ];
+    console.log('No previous_response_id - sending full conversation history');
+  }
 
   // Track what happened during this agent run
   const toolsCalled: string[] = [];
   let leadScoreChange = 0;
   let flaggedForHuman = false;
 
-  // Call OpenAI Responses API
-  let response = await callResponsesAPI(openaiApiKey, instructions, input, AGENT_TOOLS);
+  // Call OpenAI Responses API with caching options
+  let response: ResponsesAPIResponse;
+
+  try {
+    response = await callResponsesAPI(openaiApiKey, instructions, input, AGENT_TOOLS, {
+      previousResponseId: options?.previousResponseId,
+      promptCacheKey: options?.promptCacheKey
+    });
+  } catch (error) {
+    // If using previous_response_id fails (e.g., incomplete tool calls from previous session),
+    // fall back to sending full conversation history without it
+    if (options?.previousResponseId && error instanceof Error &&
+        (error.message.includes('tool output') || error.message.includes('400'))) {
+      console.log('previous_response_id failed, falling back to full history');
+
+      // Rebuild input with full conversation history
+      input = [
+        ...conversationHistory.map(msg => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content
+        })),
+        { role: 'user' as const, content: userMessage }
+      ];
+
+      response = await callResponsesAPI(openaiApiKey, instructions, input, AGENT_TOOLS, {
+        promptCacheKey: options?.promptCacheKey
+        // No previousResponseId - start fresh
+      });
+    } else {
+      throw error; // Re-throw if it's a different error
+    }
+  }
 
   // Handle tool calls in a loop (the API is agentic but we may need to provide results)
   const maxIterations = 5;
@@ -168,10 +217,31 @@ export async function runAgent(
     allItems = [...allItems, ...functionResults, ...response.output];
   }
 
+  // Check if we hit max iterations without getting a final message
+  if (iterations >= maxIterations) {
+    console.log(`Hit max iterations (${maxIterations}) - forcing final response without tools`);
+  }
+
   // Extract the final text response from message items
-  const messageItems = response.output.filter(
+  let messageItems = response.output.filter(
     (item): item is MessageItem => item.type === 'message'
   );
+
+  // If no message found (model stuck in tool loop), make one more call without tools
+  if (messageItems.length === 0) {
+    console.log('No message in response - making final call without tools');
+    response = await callResponsesAPIWithResults(
+      openaiApiKey,
+      instructions,
+      input,
+      [], // No tools - force the model to respond with text
+      allItems,
+      []
+    );
+    messageItems = response.output.filter(
+      (item): item is MessageItem => item.type === 'message'
+    );
+  }
 
   let finalMessage = "I'm sorry, I couldn't process that request.";
 
@@ -187,7 +257,8 @@ export async function runAgent(
     message: finalMessage,
     toolsCalled,
     leadScoreChange,
-    flaggedForHuman
+    flaggedForHuman,
+    responseId: response.id
   };
 }
 
@@ -199,29 +270,46 @@ async function callResponsesAPI(
   apiKey: string,
   instructions: string,
   input: ResponsesAPIInput[],
-  tools: typeof AGENT_TOOLS
+  tools: typeof AGENT_TOOLS,
+  options?: {
+    previousResponseId?: string;
+    promptCacheKey?: string;
+  }
 ): Promise<ResponsesAPIResponse> {
+  // Build request body with optional caching parameters
+  const requestBody: Record<string, unknown> = {
+    model: 'gpt-5-nano',
+    instructions,
+    input,
+    tools: tools.map(tool => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    })),
+    max_output_tokens: 2000,
+    reasoning: {
+      effort: 'low'
+    }
+  };
+
+  // Add previous_response_id for conversation chaining (reduces token usage)
+  if (options?.previousResponseId) {
+    requestBody.previous_response_id = options.previousResponseId;
+  }
+
+  // Add prompt_cache_key for better cache hit rates
+  if (options?.promptCacheKey) {
+    requestBody.prompt_cache_key = options.promptCacheKey;
+  }
+
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      model: 'gpt-5-nano',
-      instructions,
-      input,
-      tools: tools.map(tool => ({
-        type: 'function',
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters
-      })),
-      max_output_tokens: 2000,
-      reasoning: {
-        effort: 'low'
-      }
-    })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
@@ -231,7 +319,16 @@ async function callResponsesAPI(
   }
 
   const result = await response.json() as ResponsesAPIResponse;
-  console.log('OpenAI response:', JSON.stringify(result, null, 2));
+
+  // Log usage with cache info
+  if (result.usage) {
+    const cached = result.usage.input_tokens_details?.cached_tokens || 0;
+    const inputTokens = result.usage.input_tokens;
+    const cacheHitRate = inputTokens > 0 ? ((cached / inputTokens) * 100).toFixed(1) : '0';
+    console.log(`OpenAI usage: ${inputTokens} input (${cached} cached, ${cacheHitRate}% hit rate), ${result.usage.output_tokens} output`);
+  }
+
+  console.log('OpenAI response id:', result.id);
   return result;
 }
 
@@ -239,7 +336,7 @@ async function callResponsesAPIWithResults(
   apiKey: string,
   instructions: string,
   originalInput: ResponsesAPIInput[],
-  tools: typeof AGENT_TOOLS,
+  tools: typeof AGENT_TOOLS | readonly [],
   previousOutput: OutputItem[],
   functionResults: Array<{ type: 'function_call_output'; call_id: string; output: string }>
 ): Promise<ResponsesAPIResponse> {
@@ -250,27 +347,34 @@ async function callResponsesAPIWithResults(
     ...functionResults
   ];
 
+  // Build request body - only include tools if there are any
+  const requestBody: Record<string, unknown> = {
+    model: 'gpt-5-nano',
+    instructions,
+    input,
+    max_output_tokens: 2000,
+    reasoning: {
+      effort: 'low'
+    }
+  };
+
+  // Only add tools if there are any (allows forcing text-only response)
+  if (tools.length > 0) {
+    requestBody.tools = tools.map(tool => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
+  }
+
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      model: 'gpt-5-nano',
-      instructions,
-      input,
-      tools: tools.map(tool => ({
-        type: 'function',
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters
-      })),
-      max_output_tokens: 2000,
-      reasoning: {
-        effort: 'low'
-      }
-    })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
