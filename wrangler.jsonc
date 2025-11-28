@@ -10,7 +10,7 @@
 
 	// Environment variables (non-sensitive)
 	"vars": {
-		"WHATSAPP_VERIFY_TOKEN": "your-verify-token-here"
+		"WHATSAPP_VERIFY_TOKEN": "91db3f26164e50a81ab66d4ca057957e198f1ceb7856c713898a7bd9a2846a06"
 	},
 
 	// D1 Database for business data, products, leads
