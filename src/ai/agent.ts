@@ -1,8 +1,8 @@
 /**
  * AI Agent - Orchestrates LLM calls and tool execution
  *
- * Uses OpenAI Responses API with GPT-4o-mini
- * https://platform.openai.com/docs/guides/function-calling
+ * Uses OpenAI Responses API with GPT-5-nano
+ * https://platform.openai.com/docs/api-reference/responses
  */
 
 import { AGENT_TOOLS } from './tools';
@@ -28,33 +28,45 @@ interface AgentResponse {
   flaggedForHuman: boolean;
 }
 
-interface OpenAIMessage {
-  role: 'system' | 'user' | 'assistant';
+// Responses API types
+interface ResponsesAPIInput {
+  role: 'user' | 'assistant';
   content: string;
 }
 
-interface OpenAIToolCall {
+interface FunctionCallItem {
+  type: 'function_call';
   id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
+  call_id: string;
+  name: string;
+  arguments: string;
 }
 
-interface OpenAIResponse {
+interface MessageItem {
+  type: 'message';
   id: string;
-  choices: Array<{
-    message: {
-      role: 'assistant';
-      content: string | null;
-      tool_calls?: OpenAIToolCall[];
-    };
-    finish_reason: string;
+  role: 'assistant';
+  content: Array<{
+    type: 'output_text';
+    text: string;
   }>;
+}
+
+interface ReasoningItem {
+  type: 'reasoning';
+  id: string;
+  content: unknown[];
+}
+
+type OutputItem = FunctionCallItem | MessageItem | ReasoningItem | { type: string };
+
+interface ResponsesAPIResponse {
+  id: string;
+  object: 'response';
+  output: OutputItem[];
   usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
+    input_tokens: number;
+    output_tokens: number;
     total_tokens: number;
   };
 }
@@ -72,16 +84,15 @@ export async function runAgent(
   const { business, lead, conversationSummary, conversationHistory } = context;
 
   // Build the system prompt with all context
-  const systemPrompt = buildSystemPrompt(business, lead, conversationSummary);
+  const instructions = buildSystemPrompt(business, lead, conversationSummary);
 
-  // Build messages array for OpenAI
-  const messages: OpenAIMessage[] = [
-    { role: 'system', content: systemPrompt },
+  // Build input array for Responses API
+  const input: ResponsesAPIInput[] = [
     ...conversationHistory.map(msg => ({
       role: msg.role as 'user' | 'assistant',
       content: msg.content
     })),
-    { role: 'user', content: userMessage }
+    { role: 'user' as const, content: userMessage }
   ];
 
   // Track what happened during this agent run
@@ -89,27 +100,34 @@ export async function runAgent(
   let leadScoreChange = 0;
   let flaggedForHuman = false;
 
-  // Call OpenAI with tools
-  let response = await callOpenAI(openaiApiKey, messages, AGENT_TOOLS);
-  let assistantMessage = response.choices[0].message;
+  // Call OpenAI Responses API
+  let response = await callResponsesAPI(openaiApiKey, instructions, input, AGENT_TOOLS);
 
-  // Handle tool calls in a loop (model might call multiple tools)
-  const maxIterations = 5; // Prevent infinite loops
+  // Handle tool calls in a loop (the API is agentic but we may need to provide results)
+  const maxIterations = 5;
   let iterations = 0;
 
-  while (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0 && iterations < maxIterations) {
+  // Collect all items for context
+  let allItems: OutputItem[] = [...response.output];
+
+  while (iterations < maxIterations) {
     iterations++;
 
-    // Add assistant's tool call message to history
-    messages.push({
-      role: 'assistant',
-      content: assistantMessage.content || ''
-    });
+    // Find function calls in the output
+    const functionCalls = response.output.filter(
+      (item): item is FunctionCallItem => item.type === 'function_call'
+    );
 
-    // Execute each tool call
-    for (const toolCall of assistantMessage.tool_calls) {
-      const toolName = toolCall.function.name;
-      const toolArgs = JSON.parse(toolCall.function.arguments);
+    if (functionCalls.length === 0) {
+      break; // No more tool calls, we're done
+    }
+
+    // Execute each function call and collect results
+    const functionResults: Array<{ type: 'function_call_output'; call_id: string; output: string }> = [];
+
+    for (const funcCall of functionCalls) {
+      const toolName = funcCall.name;
+      const toolArgs = JSON.parse(funcCall.arguments);
 
       toolsCalled.push(toolName);
 
@@ -130,21 +148,40 @@ export async function runAgent(
         flaggedForHuman = true;
       }
 
-      // Add tool result to messages
-      // Note: OpenAI Chat Completions API expects tool results in a specific format
-      messages.push({
-        role: 'assistant', // This is a simplification - proper format would use 'tool' role
-        content: `[Tool: ${toolName}]\n${JSON.stringify(toolResult)}`
+      functionResults.push({
+        type: 'function_call_output',
+        call_id: funcCall.call_id,
+        output: JSON.stringify(toolResult)
       });
     }
 
-    // Call OpenAI again with tool results
-    response = await callOpenAI(openaiApiKey, messages, AGENT_TOOLS);
-    assistantMessage = response.choices[0].message;
+    // Call API again with function results
+    response = await callResponsesAPIWithResults(
+      openaiApiKey,
+      instructions,
+      input,
+      AGENT_TOOLS,
+      allItems,
+      functionResults
+    );
+
+    allItems = [...allItems, ...functionResults, ...response.output];
   }
 
-  // Extract the final text response
-  const finalMessage = assistantMessage.content || "I'm sorry, I couldn't process that request.";
+  // Extract the final text response from message items
+  const messageItems = response.output.filter(
+    (item): item is MessageItem => item.type === 'message'
+  );
+
+  let finalMessage = "I'm sorry, I couldn't process that request.";
+
+  if (messageItems.length > 0) {
+    const lastMessage = messageItems[messageItems.length - 1];
+    const textContent = lastMessage.content.find(c => c.type === 'output_text');
+    if (textContent) {
+      finalMessage = textContent.text;
+    }
+  }
 
   return {
     message: finalMessage,
@@ -155,35 +192,35 @@ export async function runAgent(
 }
 
 // ============================================================================
-// OpenAI API Call
+// OpenAI Responses API Call
 // ============================================================================
 
-async function callOpenAI(
+async function callResponsesAPI(
   apiKey: string,
-  messages: OpenAIMessage[],
+  instructions: string,
+  input: ResponsesAPIInput[],
   tools: typeof AGENT_TOOLS
-): Promise<OpenAIResponse> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+): Promise<ResponsesAPIResponse> {
+  const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages,
+      model: 'gpt-5-nano',
+      instructions,
+      input,
       tools: tools.map(tool => ({
         type: 'function',
-        function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
-          strict: tool.strict
-        }
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters
       })),
-      tool_choice: 'auto',
-      temperature: 0.7,
-      max_tokens: 500
+      max_output_tokens: 2000,
+      reasoning: {
+        effort: 'low'
+      }
     })
   });
 
@@ -193,7 +230,58 @@ async function callOpenAI(
     throw new Error(`OpenAI API error: ${response.status}`);
   }
 
-  return response.json();
+  const result = await response.json() as ResponsesAPIResponse;
+  console.log('OpenAI response:', JSON.stringify(result, null, 2));
+  return result;
+}
+
+async function callResponsesAPIWithResults(
+  apiKey: string,
+  instructions: string,
+  originalInput: ResponsesAPIInput[],
+  tools: typeof AGENT_TOOLS,
+  previousOutput: OutputItem[],
+  functionResults: Array<{ type: 'function_call_output'; call_id: string; output: string }>
+): Promise<ResponsesAPIResponse> {
+  // Build input with previous context and function results
+  const input = [
+    ...originalInput,
+    ...previousOutput,
+    ...functionResults
+  ];
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'gpt-5-nano',
+      instructions,
+      input,
+      tools: tools.map(tool => ({
+        type: 'function',
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters
+      })),
+      max_output_tokens: 2000,
+      reasoning: {
+        effort: 'low'
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('OpenAI API error:', error);
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  const result = await response.json() as ResponsesAPIResponse;
+  console.log('OpenAI response with results:', JSON.stringify(result, null, 2));
+  return result;
 }
 
 // ============================================================================
