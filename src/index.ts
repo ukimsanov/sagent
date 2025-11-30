@@ -10,6 +10,7 @@
 
 import {
   verifyWebhook,
+  verifySignature,
   parseWebhookPayload,
   extractMessage,
   isStatusUpdate,
@@ -22,6 +23,7 @@ import {
   splitMessage
 } from './whatsapp/messages';
 import { runAgent } from './ai/agent';
+import { buildSummaryExtractionPrompt } from './ai/prompts';
 import * as db from './db/queries';
 import {
   getConversation,
@@ -45,6 +47,7 @@ interface Env {
   // Secrets (set via wrangler secret put)
   OPENAI_API_KEY: string;
   WHATSAPP_ACCESS_TOKEN: string;
+  WHATSAPP_APP_SECRET?: string; // Optional - enables webhook signature validation
 }
 
 // ============================================================================
@@ -67,8 +70,24 @@ export default {
       }
 
       if (request.method === 'POST') {
-        // Read body BEFORE returning response (can't read stream after response sent)
-        const body = await request.json();
+        // Read body as text first (needed for signature verification)
+        const bodyText = await request.text();
+
+        // Verify webhook signature if app secret is configured
+        if (env.WHATSAPP_APP_SECRET) {
+          const signature = request.headers.get('X-Hub-Signature-256');
+          const isValid = await verifySignature(bodyText, signature, env.WHATSAPP_APP_SECRET);
+
+          if (!isValid) {
+            console.error('Invalid webhook signature - rejecting request');
+            return new Response('Invalid signature', { status: 401 });
+          }
+          console.log('Webhook signature verified');
+        }
+
+        // Parse the body as JSON
+        const body = JSON.parse(bodyText);
+
         // Process the message in the background
         ctx.waitUntil(handleIncomingMessage(body, env));
         // Respond immediately to WhatsApp (they require < 5s response)
@@ -140,11 +159,24 @@ async function handleIncomingMessage(body: unknown, env: Env): Promise<void> {
 
     console.log(`Processing message from ${textMessage.from}: ${textMessage.text}`);
 
-    // Mark as read immediately
+    // Mark as read immediately (shows blue checkmarks)
     await markAsRead(
       textMessage.businessPhoneNumberId,
       env.WHATSAPP_ACCESS_TOKEN,
-      message.messageId
+      message.messageId,
+      false // Don't show typing yet
+    );
+
+    // Natural "reading" delay before typing starts (1-2 seconds based on message length)
+    const readingDelay = Math.min(1000 + textMessage.text.length * 20, 2500);
+    await new Promise(resolve => setTimeout(resolve, readingDelay));
+
+    // Now show typing indicator (auto-dismisses when we send response or after 25 seconds)
+    await markAsRead(
+      textMessage.businessPhoneNumberId,
+      env.WHATSAPP_ACCESS_TOKEN,
+      message.messageId,
+      true // showTypingIndicator
     );
 
     // Get business config
@@ -212,6 +244,7 @@ async function processMessage(
   );
 
   // Run the AI agent with caching options
+  // Note: Typing indicator was already shown when we marked the message as read
   const agentResponse = await runAgent(
     env.OPENAI_API_KEY,
     env.DB,
@@ -269,11 +302,90 @@ async function processMessage(
   }
 
   // Save assistant response to conversation
-  await addMessage(
+  const updatedConversation = await addMessage(
     env.CONVERSATIONS,
     business.id,
     message.from,
     lead.id,
     { role: 'assistant', content: agentResponse.message }
   );
+
+  // Summarize conversation in background if we have enough messages
+  if (updatedConversation.messages.length >= 4) {
+    summarizeConversation(env, lead.id, updatedConversation.messages).catch(err => {
+      console.error('Background summarization failed:', err);
+    });
+  }
+}
+
+// ============================================================================
+// Conversation Summarization (Background Task)
+// ============================================================================
+
+async function summarizeConversation(
+  env: Env,
+  leadId: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<void> {
+  try {
+    console.log(`Summarizing conversation for lead ${leadId} (${messages.length} messages)`);
+
+    // Build the prompt for extraction
+    const prompt = buildSummaryExtractionPrompt(messages);
+
+    // Call OpenAI to extract summary (using a simple completion, not the agent)
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 500,
+        temperature: 0.3
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Summarization API error:', response.status, errorText);
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const result = await response.json() as {
+      choices: Array<{ message: { content: string } }>;
+    };
+
+    const content = result.choices[0]?.message?.content;
+    if (!content) {
+      console.error('Summarization returned no content');
+      throw new Error('No content in OpenAI response');
+    }
+
+    console.log('Summarization raw response:', content.substring(0, 200));
+
+    // Parse the JSON response
+    const extracted = JSON.parse(content) as {
+      summary: string;
+      key_interests: string[];
+      objections: string[];
+      next_steps: string | null;
+    };
+
+    // Store the summary
+    await db.upsertConversationSummary(
+      env.DB,
+      leadId,
+      extracted.summary,
+      extracted.key_interests || [],
+      extracted.objections || [],
+      extracted.next_steps
+    );
+
+    console.log(`Conversation summary saved for lead ${leadId}`);
+  } catch (error) {
+    console.error('Failed to summarize conversation:', error);
+  }
 }

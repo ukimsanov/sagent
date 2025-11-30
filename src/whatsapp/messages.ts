@@ -123,44 +123,63 @@ export async function sendListMessage(
 }
 
 /**
- * Mark a message as read
+ * Mark a message as read and optionally show typing indicator
+ * When showTypingIndicator is true, the typing indicator will show
+ * and auto-dismiss after 25 seconds or when a message is sent
  */
 export async function markAsRead(
   phoneNumberId: string,
   accessToken: string,
-  messageId: string
+  messageId: string,
+  showTypingIndicator: boolean = false
 ): Promise<void> {
   const url = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
-  await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      status: 'read',
-      message_id: messageId
-    })
-  });
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    status: 'read',
+    message_id: messageId
+  };
+
+  // Add typing indicator if requested
+  // Meta added this capability in October 2024
+  if (showTypingIndicator) {
+    payload.typing_indicator = {
+      type: 'text'
+    };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      console.log(`Message marked as read${showTypingIndicator ? ' with typing indicator' : ''}`);
+    } else {
+      const errorBody = await response.text();
+      console.error('Mark as read failed:', response.status, errorBody);
+    }
+  } catch (error) {
+    console.error('Failed to mark as read:', error);
+  }
 }
 
+
 /**
- * Send typing indicator (simulates human-like behavior)
- * Note: WhatsApp doesn't have a native typing indicator API
- * This is a placeholder - the actual "typing" effect is achieved
- * by adding a small delay before responding
+ * Simulate typing delay (backup for when typing indicator is not enough)
+ * Only adds a small delay now since we use real typing indicators
  */
 export async function simulateTypingDelay(textLength: number): Promise<void> {
-  // Average typing speed: ~40 words per minute = ~200 chars per minute
-  // So roughly 3.3 chars per second, or 300ms per char
-  // We'll cap it at 3 seconds max to not be annoying
-  const baseDelay = 500; // Minimum delay
-  const typingDelay = Math.min(textLength * 15, 2500); // ~15ms per char, max 2.5s
-  const totalDelay = baseDelay + typingDelay;
-
-  await new Promise(resolve => setTimeout(resolve, totalDelay));
+  // With real typing indicators, we only need a small delay
+  // to make the response feel natural (not instant)
+  const delay = Math.min(200 + textLength * 5, 800); // 200-800ms
+  await new Promise(resolve => setTimeout(resolve, delay));
 }
 
 // ============================================================================

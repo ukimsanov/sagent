@@ -230,13 +230,18 @@ export async function runAgent(
   // If no message found (model stuck in tool loop), make one more call without tools
   if (messageItems.length === 0) {
     console.log('No message in response - making final call without tools');
-    response = await callResponsesAPIWithResults(
+    // Don't pass allItems (tool call history) - just ask for a direct response
+    // Add a system nudge to respond based on what was learned
+    const nudgedInput = [
+      ...input,
+      { role: 'user' as const, content: '[System: Please respond to the customer based on the product searches you performed. Do not call any more tools.]' }
+    ];
+    response = await callResponsesAPI(
       openaiApiKey,
-      instructions,
-      input,
-      [], // No tools - force the model to respond with text
-      allItems,
-      []
+      instructions + '\n\nIMPORTANT: Respond NOW with a text message. Do not call any tools.',
+      nudgedInput,
+      [], // No tools - force text response
+      {}
     );
     messageItems = response.output.filter(
       (item): item is MessageItem => item.type === 'message'
@@ -270,7 +275,7 @@ async function callResponsesAPI(
   apiKey: string,
   instructions: string,
   input: ResponsesAPIInput[],
-  tools: typeof AGENT_TOOLS,
+  tools: typeof AGENT_TOOLS | readonly [],
   options?: {
     previousResponseId?: string;
     promptCacheKey?: string;
@@ -281,17 +286,21 @@ async function callResponsesAPI(
     model: 'gpt-5-nano',
     instructions,
     input,
-    tools: tools.map(tool => ({
-      type: 'function',
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    })),
     max_output_tokens: 2000,
     reasoning: {
       effort: 'low'
     }
   };
+
+  // Only add tools if there are any (allows forcing text-only response)
+  if (tools.length > 0) {
+    requestBody.tools = tools.map(tool => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
+  }
 
   // Add previous_response_id for conversation chaining (reduces token usage)
   if (options?.previousResponseId) {
@@ -384,7 +393,8 @@ async function callResponsesAPIWithResults(
   }
 
   const result = await response.json() as ResponsesAPIResponse;
-  console.log('OpenAI response with results:', JSON.stringify(result, null, 2));
+  // Only log summary info, not the full response (which includes huge instructions)
+  console.log('OpenAI response id:', result.id, '| output types:', result.output.map(o => o.type).join(', '));
   return result;
 }
 
