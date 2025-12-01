@@ -25,10 +25,9 @@ export interface ConversationState {
 // ============================================================================
 
 // Token-based limit instead of message count
-// ~4 characters per token for English text (standard approximation)
+// ~4 characters per token for English text
 // 2000 tokens ≈ 8000 characters ≈ 20-40 typical messages
-// TESTING: Temporarily lowered to 200 to test overflow summarization
-export const MAX_TOKENS = 200; // TODO: Change back to 2000 after testing
+export const MAX_TOKENS = 2000;
 export const CHARS_PER_TOKEN = 4;
 export const CONVERSATION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
 
