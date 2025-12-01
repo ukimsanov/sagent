@@ -23,13 +23,15 @@ import {
   splitMessage
 } from './whatsapp/messages';
 import { runAgent } from './ai/agent';
-import { buildSummaryExtractionPrompt } from './ai/prompts';
+import { buildIncrementalSummaryPrompt } from './ai/prompts';
 import * as db from './db/queries';
 import {
   getConversation,
   addMessage,
   formatMessagesForLLM,
-  updateLastResponseId
+  updateLastResponseId,
+  wouldOverflow,
+  type Message
 } from './utils/kv';
 
 // ============================================================================
@@ -89,7 +91,7 @@ export default {
         const body = JSON.parse(bodyText);
 
         // Process the message in the background
-        ctx.waitUntil(handleIncomingMessage(body, env));
+        ctx.waitUntil(handleIncomingMessage(body, env, ctx));
         // Respond immediately to WhatsApp (they require < 5s response)
         return new Response('OK', { status: 200 });
       }
@@ -120,7 +122,7 @@ function handleWebhookVerification(request: Request, env: Env): Response {
 // Incoming Message Handler (POST /webhook)
 // ============================================================================
 
-async function handleIncomingMessage(body: unknown, env: Env): Promise<void> {
+async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
   try {
     const payload = parseWebhookPayload(body);
 
@@ -190,11 +192,11 @@ async function handleIncomingMessage(body: unknown, env: Env): Promise<void> {
         return;
       }
       // Continue with demo business
-      await processMessage(env, demoBusiness, textMessage);
+      await processMessage(env, ctx, demoBusiness, textMessage);
       return;
     }
 
-    await processMessage(env, business, textMessage);
+    await processMessage(env, ctx, business, textMessage);
   } catch (error) {
     console.error('Error handling incoming message:', error);
   }
@@ -206,6 +208,7 @@ async function handleIncomingMessage(body: unknown, env: Env): Promise<void> {
 
 async function processMessage(
   env: Env,
+  ctx: ExecutionContext,
   business: db.Business,
   message: {
     businessPhoneNumberId: string;
@@ -223,9 +226,6 @@ async function processMessage(
     lead.name = message.fromName;
   }
 
-  // Get conversation summary (previous context)
-  const conversationSummary = await db.getConversationSummary(env.DB, lead.id);
-
   // Get recent conversation history from KV
   const conversation = await getConversation(
     env.CONVERSATIONS,
@@ -234,7 +234,21 @@ async function processMessage(
     lead.id
   );
 
-  // Add user message to conversation
+  // Get existing conversation summary
+  let conversationSummary = await db.getConversationSummary(env.DB, lead.id);
+
+  // Check if adding this message would overflow KV storage
+  // If so, summarize ALL current messages to preserve context
+  // KV will naturally keep recent messages (with overlap) - that's fine and preferred for accuracy
+  if (wouldOverflow(conversation, message.text) && conversation.messages.length >= 2) {
+    console.log(`KV would overflow - summarizing all ${conversation.messages.length} messages to preserve context`);
+    await summarizeConversation(env, lead.id, conversation.messages, conversationSummary);
+
+    // Refresh summary after update
+    conversationSummary = await db.getConversationSummary(env.DB, lead.id);
+  }
+
+  // Add user message to conversation (trimming happens automatically in addMessage)
   await addMessage(
     env.CONVERSATIONS,
     business.id,
@@ -302,20 +316,13 @@ async function processMessage(
   }
 
   // Save assistant response to conversation
-  const updatedConversation = await addMessage(
+  await addMessage(
     env.CONVERSATIONS,
     business.id,
     message.from,
     lead.id,
     { role: 'assistant', content: agentResponse.message }
   );
-
-  // Summarize conversation in background if we have enough messages
-  if (updatedConversation.messages.length >= 4) {
-    summarizeConversation(env, lead.id, updatedConversation.messages).catch(err => {
-      console.error('Background summarization failed:', err);
-    });
-  }
 }
 
 // ============================================================================
@@ -325,13 +332,14 @@ async function processMessage(
 async function summarizeConversation(
   env: Env,
   leadId: string,
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  messages: Message[],
+  existingSummary: db.ConversationSummary | null
 ): Promise<void> {
   try {
-    console.log(`Summarizing conversation for lead ${leadId} (${messages.length} messages)`);
+    console.log(`Summarizing conversation for lead ${leadId} (${messages.length} messages, existing summary: ${existingSummary ? 'yes' : 'no'})`);
 
-    // Build the prompt for extraction
-    const prompt = buildSummaryExtractionPrompt(messages);
+    // Build the incremental prompt that merges existing summary with new messages
+    const prompt = buildIncrementalSummaryPrompt(existingSummary, messages);
 
     // Call OpenAI to extract summary (using a simple completion, not the agent)
     const response = await fetch('https://api.openai.com/v1/chat/completions', {

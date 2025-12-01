@@ -24,8 +24,70 @@ export interface ConversationState {
 // Constants
 // ============================================================================
 
-const MAX_MESSAGES = 20; // Keep last 20 messages for context
-const CONVERSATION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
+// Token-based limit instead of message count
+// ~4 characters per token for English text (standard approximation)
+// 2000 tokens ≈ 8000 characters ≈ 20-40 typical messages
+// TESTING: Temporarily lowered to 200 to test overflow summarization
+export const MAX_TOKENS = 200; // TODO: Change back to 2000 after testing
+export const CHARS_PER_TOKEN = 4;
+export const CONVERSATION_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
+
+// ============================================================================
+// Token Estimation
+// ============================================================================
+
+/**
+ * Estimate token count for a string (~4 chars per token for English)
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+/**
+ * Calculate total tokens for all messages
+ */
+export function calculateTotalTokens(messages: Message[]): number {
+  return messages.reduce((total, msg) => total + estimateTokens(msg.content), 0);
+}
+
+/**
+ * Check if adding a new message would exceed the token limit
+ * This triggers summarization BEFORE we lose data
+ */
+export function wouldOverflow(conversation: ConversationState, newMessageContent: string): boolean {
+  const currentTokens = calculateTotalTokens(conversation.messages);
+  const newMessageTokens = estimateTokens(newMessageContent);
+  return (currentTokens + newMessageTokens) > MAX_TOKENS;
+}
+
+/**
+ * Get messages that would be trimmed if we added a new message
+ * Returns the oldest messages that need to be summarized before they're lost
+ */
+export function getMessagesToSummarize(
+  conversation: ConversationState,
+  newMessageContent: string
+): Message[] {
+  const newMessageTokens = estimateTokens(newMessageContent);
+  const targetTokens = MAX_TOKENS - newMessageTokens;
+
+  // Find how many messages from the end we can keep
+  let keptTokens = 0;
+  let keepFromIndex = conversation.messages.length;
+
+  for (let i = conversation.messages.length - 1; i >= 0; i--) {
+    const msgTokens = estimateTokens(conversation.messages[i].content);
+    if (keptTokens + msgTokens <= targetTokens) {
+      keptTokens += msgTokens;
+      keepFromIndex = i;
+    } else {
+      break;
+    }
+  }
+
+  // Return messages that would be trimmed (from start to keepFromIndex)
+  return conversation.messages.slice(0, keepFromIndex);
+}
 
 // ============================================================================
 // Functions
@@ -83,9 +145,10 @@ export async function addMessage(
 
   conversation.messages.push(newMessage);
 
-  // Trim to max messages
-  if (conversation.messages.length > MAX_MESSAGES) {
-    conversation.messages = conversation.messages.slice(-MAX_MESSAGES);
+  // Trim oldest messages until under token limit
+  // This protects against long messages bloating the context
+  while (calculateTotalTokens(conversation.messages) > MAX_TOKENS && conversation.messages.length > 1) {
+    conversation.messages.shift(); // Remove oldest message
   }
 
   conversation.lastUpdated = Date.now();
