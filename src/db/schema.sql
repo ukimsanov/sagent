@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS businesses (
   working_hours TEXT, -- JSON: {"mon": "9-18", "tue": "9-18", ...}
   timezone TEXT DEFAULT 'UTC',
   language TEXT DEFAULT 'en',
+  address TEXT, -- Physical store address for store_visit goal
+  goals TEXT, -- JSON array: ["store_visit", "lead_capture", "appointment", ...]
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch())
 );
@@ -26,6 +28,7 @@ CREATE TABLE IF NOT EXISTS products (
   in_stock INTEGER DEFAULT 1,
   stock_quantity INTEGER,
   metadata TEXT, -- JSON for sizes, colors, variants, etc.
+  image_url TEXT, -- R2 URL for product image
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch()),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
@@ -42,6 +45,8 @@ CREATE TABLE IF NOT EXISTS leads (
   business_id TEXT NOT NULL,
   whatsapp_number TEXT NOT NULL,
   name TEXT,
+  email TEXT, -- For lead_capture goal
+  preferred_contact TEXT, -- 'whatsapp', 'phone', 'email' for lead_capture goal
   score INTEGER DEFAULT 0, -- 0-100 lead warmth
   status TEXT DEFAULT 'new', -- new, engaged, warm, hot, converted, lost
   tags TEXT, -- JSON array
@@ -82,3 +87,50 @@ CREATE TABLE IF NOT EXISTS human_flags (
 );
 
 CREATE INDEX IF NOT EXISTS idx_flags_unresolved ON human_flags(lead_id, resolved, urgency);
+
+-- Appointments for consultation/fitting booking (appointment goal)
+CREATE TABLE IF NOT EXISTS appointments (
+  id TEXT PRIMARY KEY,
+  lead_id TEXT NOT NULL,
+  business_id TEXT NOT NULL,
+  requested_date TEXT, -- e.g., "2025-12-15"
+  requested_time TEXT, -- e.g., "14:00"
+  notes TEXT, -- What the appointment is for
+  status TEXT DEFAULT 'pending', -- pending, confirmed, cancelled
+  created_at INTEGER DEFAULT (unixepoch()),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_appointments_business ON appointments(business_id, status);
+CREATE INDEX IF NOT EXISTS idx_appointments_lead ON appointments(lead_id);
+
+-- Callback requests (callback_request goal)
+CREATE TABLE IF NOT EXISTS callback_requests (
+  id TEXT PRIMARY KEY,
+  lead_id TEXT NOT NULL,
+  business_id TEXT NOT NULL,
+  preferred_time TEXT, -- e.g., "tomorrow afternoon"
+  reason TEXT, -- Why they want a callback
+  status TEXT DEFAULT 'pending', -- pending, completed
+  created_at INTEGER DEFAULT (unixepoch()),
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_callbacks_business ON callback_requests(business_id, status);
+
+-- Promo codes pool (promo_delivery goal)
+CREATE TABLE IF NOT EXISTS promo_codes (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL,
+  code TEXT NOT NULL, -- e.g., "SAVE10", "WELCOME20"
+  discount_percent INTEGER, -- e.g., 10 for 10% off
+  discount_amount REAL, -- Alternative: fixed amount off
+  used_by_lead_id TEXT, -- NULL if unused, lead_id if used
+  expires_at INTEGER, -- Unix timestamp
+  created_at INTEGER DEFAULT (unixepoch()),
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_promos_unused ON promo_codes(business_id, used_by_lead_id);

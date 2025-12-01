@@ -7,7 +7,8 @@
  * - Examples of good vs bad responses
  */
 
-import type { Business, Lead, ConversationSummary } from '../db/queries';
+import type { Business, Lead, ConversationSummary, GoalType } from '../db/queries';
+import { parseBusinessGoals } from '../db/queries';
 
 // ============================================================================
 // System Prompt Builder
@@ -22,6 +23,17 @@ export function buildSystemPrompt(
   const basePrompt = business.system_prompt || getDefaultSystemPrompt(business.name);
 
   const parts: string[] = [basePrompt];
+
+  // Add goal-specific instructions
+  const goals = parseBusinessGoals(business);
+  if (goals.length > 0) {
+    const goalInstructions = buildGoalInstructions(goals, business.address);
+    if (goalInstructions) {
+      parts.push('');
+      parts.push('## Your Goals');
+      parts.push(goalInstructions);
+    }
+  }
 
   // Add customer context
   parts.push('');
@@ -97,10 +109,44 @@ Factual questions get factual answers:
 Don't be robotic - but don't be over-eager either. No "Great question!" or "Feel free to let me know!"
 
 # Formatting
-Mobile-friendly. When listing products, use line breaks so it's easy to scan.
+Mobile-friendly. Use lists when comparing 3+ items. For 1-2 items, just describe them naturally in a sentence.
 
 # Flag for Human
 Complaints, refunds, negotiations, ready to buy, anything you're unsure about.`;
+}
+
+// ============================================================================
+// Goal Instructions Builder
+// ============================================================================
+
+function buildGoalInstructions(goals: GoalType[], address: string | null): string {
+  const instructions: string[] = [];
+
+  if (goals.includes('store_visit') && address) {
+    instructions.push(`- Encourage customers to visit the store at: ${address}`);
+  }
+
+  if (goals.includes('lead_capture')) {
+    instructions.push('- When appropriate, collect customer email and name for follow-up (use capture_lead_info tool)');
+  }
+
+  if (goals.includes('callback_request')) {
+    instructions.push('- Offer callback option for customers who prefer phone calls (use request_callback tool)');
+  }
+
+  if (goals.includes('appointment')) {
+    instructions.push('- Offer to book appointments for consultations or fittings (use book_appointment tool)');
+  }
+
+  if (goals.includes('online_order')) {
+    instructions.push('- When customer is ready to buy, flag for human to complete the order');
+  }
+
+  if (goals.includes('promo_delivery')) {
+    instructions.push('- You can offer discount codes to interested customers (use send_promo_code tool)');
+  }
+
+  return instructions.join('\n');
 }
 
 // ============================================================================
