@@ -124,6 +124,98 @@ export const AGENT_TOOLS = [
       additionalProperties: false
     },
     strict: true
+  },
+  // ============================================================================
+  // Goal-Based Tools (Phase 2)
+  // ============================================================================
+  {
+    type: 'function' as const,
+    name: 'capture_lead_info',
+    description: 'Save customer contact information for follow-up. Use when customer shares their email, name, or contact preference during conversation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: ['string', 'null'],
+          description: 'Customer name if provided'
+        },
+        email: {
+          type: ['string', 'null'],
+          description: 'Customer email address if provided'
+        },
+        preferred_contact: {
+          type: ['string', 'null'],
+          enum: ['whatsapp', 'phone', 'email', null],
+          description: 'How customer prefers to be contacted'
+        }
+      },
+      required: ['name', 'email', 'preferred_contact'],
+      additionalProperties: false
+    },
+    strict: true
+  },
+  {
+    type: 'function' as const,
+    name: 'request_callback',
+    description: 'Create a callback request for the customer. Use when customer wants to speak with someone on the phone or requests a call back.',
+    parameters: {
+      type: 'object',
+      properties: {
+        preferred_time: {
+          type: ['string', 'null'],
+          description: 'When customer wants to be called (e.g., "tomorrow morning", "after 5pm")'
+        },
+        reason: {
+          type: ['string', 'null'],
+          description: 'Why they want a callback (e.g., "discuss bulk order", "need help with sizing")'
+        }
+      },
+      required: ['preferred_time', 'reason'],
+      additionalProperties: false
+    },
+    strict: true
+  },
+  {
+    type: 'function' as const,
+    name: 'book_appointment',
+    description: 'Book an appointment for consultation, fitting, or in-store visit. Use when customer wants to schedule a time to visit or meet.',
+    parameters: {
+      type: 'object',
+      properties: {
+        date: {
+          type: ['string', 'null'],
+          description: 'Requested date (e.g., "2025-12-15", "next Monday")'
+        },
+        time: {
+          type: ['string', 'null'],
+          description: 'Requested time (e.g., "14:00", "afternoon")'
+        },
+        notes: {
+          type: ['string', 'null'],
+          description: 'What the appointment is for (e.g., "wedding dress consultation", "suit fitting")'
+        }
+      },
+      required: ['date', 'time', 'notes'],
+      additionalProperties: false
+    },
+    strict: true
+  },
+  {
+    type: 'function' as const,
+    name: 'send_promo_code',
+    description: 'Send a discount/promo code to the customer. Use when customer shows interest and could be nudged towards purchase with a discount.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'Why giving this promo code (e.g., "first-time customer", "showed interest in multiple items")'
+        }
+      },
+      required: ['reason'],
+      additionalProperties: false
+    },
+    strict: true
   }
 ] as const;
 
@@ -182,10 +274,46 @@ export interface HumanFlagResult {
   message: string;
 }
 
+// Phase 2 Tool Results
+export interface LeadCaptureResult {
+  success: boolean;
+  message: string;
+  captured: {
+    name?: string;
+    email?: string;
+    preferred_contact?: string;
+  };
+}
+
+export interface CallbackRequestResult {
+  success: boolean;
+  message: string;
+  request_id: string;
+}
+
+export interface AppointmentResult {
+  success: boolean;
+  message: string;
+  appointment_id: string;
+  date: string | null;
+  time: string | null;
+}
+
+export interface PromoCodeResult {
+  success: boolean;
+  message: string;
+  code?: string;
+  discount?: string;
+}
+
 export type ToolResult =
   | SearchProductsResult
   | ProductDetailsResult
   | AvailabilityResult
   | CategoriesResult
   | LeadScoreResult
-  | HumanFlagResult;
+  | HumanFlagResult
+  | LeadCaptureResult
+  | CallbackRequestResult
+  | AppointmentResult
+  | PromoCodeResult;

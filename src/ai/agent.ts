@@ -491,6 +491,94 @@ async function executeToolCall(
       };
     }
 
+    // ========================================================================
+    // Phase 2: Goal-Based Tools
+    // ========================================================================
+
+    case 'capture_lead_info': {
+      const info: {
+        name?: string;
+        email?: string;
+        preferred_contact?: 'whatsapp' | 'phone' | 'email';
+      } = {};
+
+      if (args.name) info.name = args.name as string;
+      if (args.email) info.email = args.email as string;
+      if (args.preferred_contact) {
+        info.preferred_contact = args.preferred_contact as 'whatsapp' | 'phone' | 'email';
+      }
+
+      await db.updateLeadInfo(database, leadId, info);
+
+      return {
+        success: true,
+        message: 'Lead information saved',
+        captured: info
+      };
+    }
+
+    case 'request_callback': {
+      const result = await db.createCallbackRequest(
+        database,
+        leadId,
+        businessId,
+        args.preferred_time as string | null,
+        args.reason as string | null
+      );
+
+      return {
+        success: true,
+        message: 'Callback request created',
+        request_id: result.id
+      };
+    }
+
+    case 'book_appointment': {
+      const appointment = await db.createAppointment(
+        database,
+        leadId,
+        businessId,
+        args.date as string | null,
+        args.time as string | null,
+        args.notes as string | null
+      );
+
+      return {
+        success: true,
+        message: 'Appointment booked',
+        appointment_id: appointment.id,
+        date: appointment.requested_date,
+        time: appointment.requested_time
+      };
+    }
+
+    case 'send_promo_code': {
+      const promo = await db.getUnusedPromoCode(database, businessId);
+
+      if (!promo) {
+        return {
+          success: false,
+          message: 'No promo codes available at the moment'
+        };
+      }
+
+      // Mark as used
+      await db.markPromoCodeUsed(database, promo.id, leadId);
+
+      const discount = promo.discount_percent
+        ? `${promo.discount_percent}% off`
+        : promo.discount_amount
+          ? `$${promo.discount_amount} off`
+          : 'discount';
+
+      return {
+        success: true,
+        message: `Promo code sent: ${promo.code}`,
+        code: promo.code,
+        discount
+      };
+    }
+
     default:
       return { error: `Unknown tool: ${toolName}` };
   }
