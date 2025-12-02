@@ -592,16 +592,21 @@ async function executeToolCall(
     }
 
     case 'send_product_image': {
+      console.log(`[send_product_image] Attempting to send image for product: ${args.product_id}`);
       const product = await db.getProductById(database, args.product_id as string);
 
       if (!product) {
+        console.log('[send_product_image] Product not found');
         return {
           success: false,
           message: 'Product not found'
         };
       }
 
+      console.log(`[send_product_image] Product found: ${product.name}, images: ${product.image_urls.length}`);
+
       if (product.image_urls.length === 0) {
+        console.log('[send_product_image] No images available');
         return {
           success: false,
           message: 'No images available for this product'
@@ -610,10 +615,12 @@ async function executeToolCall(
 
       // Send image(s) via WhatsApp if config is available
       if (whatsappConfig) {
+        console.log(`[send_product_image] WhatsApp config available, sending ${product.image_urls.length} images`);
         try {
           // Send all images
           for (let i = 0; i < product.image_urls.length; i++) {
             const imageUrl = product.image_urls[i];
+            console.log(`[send_product_image] Sending image ${i + 1}/${product.image_urls.length}: ${imageUrl}`);
             // Only add caption to first image
             const caption = i === 0
               ? `${product.name}${product.price ? ` - $${product.price}` : ''}`
@@ -626,16 +633,18 @@ async function executeToolCall(
               imageUrl,
               caption
             );
+            console.log(`[send_product_image] Image ${i + 1} sent successfully`);
           }
 
           const imageCount = product.image_urls.length;
+          console.log(`[send_product_image] All ${imageCount} images sent successfully`);
           return {
             success: true,
             message: `${imageCount} image${imageCount > 1 ? 's' : ''} sent for ${product.name}`,
             image_sent: true
           };
         } catch (error) {
-          console.error('Failed to send images:', error);
+          console.error('[send_product_image] Failed to send images:', error);
           return {
             success: false,
             message: 'Failed to send images'
@@ -643,6 +652,7 @@ async function executeToolCall(
         }
       }
 
+      console.log('[send_product_image] WhatsApp config not available');
       return {
         success: false,
         message: 'Cannot send images - WhatsApp not configured'

@@ -223,6 +223,8 @@ async function sendMessage(
 ): Promise<SendMessageResponse> {
   const url = `${WHATSAPP_API_URL}/${phoneNumberId}/messages`;
 
+  console.log('[sendMessage] Sending to WhatsApp API:', JSON.stringify(payload, null, 2));
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -232,8 +234,11 @@ async function sendMessage(
     body: JSON.stringify(payload)
   });
 
+  console.log('[sendMessage] WhatsApp API response status:', response.status);
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
+    console.error('[sendMessage] WhatsApp API error:', JSON.stringify(error, null, 2));
     throw new WhatsAppApiError(
       `Failed to send message: ${response.status}`,
       response.status,
@@ -241,7 +246,9 @@ async function sendMessage(
     );
   }
 
-  return response.json();
+  const result = await response.json() as SendMessageResponse;
+  console.log('[sendMessage] WhatsApp API success response:', JSON.stringify(result, null, 2));
+  return result;
 }
 
 // ============================================================================
