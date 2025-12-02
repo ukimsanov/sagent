@@ -16,6 +16,7 @@ import {
   isStatusUpdate,
   type WebhookVerificationParams
 } from './whatsapp/webhook';
+import { isAudioMessage } from './whatsapp/types';
 import {
   sendTextMessage,
   markAsRead,
@@ -24,6 +25,7 @@ import {
 } from './whatsapp/messages';
 import { runAgent } from './ai/agent';
 import { buildIncrementalSummaryPrompt } from './ai/prompts';
+import { transcribeAudioMessage } from './ai/transcription';
 import * as db from './db/queries';
 import {
   getConversation,
@@ -144,59 +146,64 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
       return;
     }
 
-    // Only handle text messages for now
-    if (!message.text) {
-      console.log(`Ignoring non-text message type: ${message.type}`);
-      // TODO: Handle audio messages with transcription
-      return;
-    }
+    // Handle text OR audio messages
+    if (message.text) {
+      // Text message - process directly
+      const textMessage = {
+        businessPhoneNumberId: message.businessPhoneNumberId,
+        from: message.from,
+        fromName: message.fromName,
+        text: message.text
+      };
 
-    // At this point we know text is not null
-    const textMessage = {
-      businessPhoneNumberId: message.businessPhoneNumberId,
-      from: message.from,
-      fromName: message.fromName,
-      text: message.text // Now guaranteed to be string
-    };
+      console.log(`Processing text message from ${textMessage.from}: ${textMessage.text}`);
 
-    console.log(`Processing message from ${textMessage.from}: ${textMessage.text}`);
+      // Mark as read immediately (shows blue checkmarks)
+      await markAsRead(
+        textMessage.businessPhoneNumberId,
+        env.WHATSAPP_ACCESS_TOKEN,
+        message.messageId,
+        false // Don't show typing yet
+      );
 
-    // Mark as read immediately (shows blue checkmarks)
-    await markAsRead(
-      textMessage.businessPhoneNumberId,
-      env.WHATSAPP_ACCESS_TOKEN,
-      message.messageId,
-      false // Don't show typing yet
-    );
+      // Natural "reading" delay before typing starts (1-2 seconds based on message length)
+      const readingDelay = Math.min(1000 + textMessage.text.length * 20, 2500);
+      await new Promise(resolve => setTimeout(resolve, readingDelay));
 
-    // Natural "reading" delay before typing starts (1-2 seconds based on message length)
-    const readingDelay = Math.min(1000 + textMessage.text.length * 20, 2500);
-    await new Promise(resolve => setTimeout(resolve, readingDelay));
+      // Now show typing indicator (auto-dismisses when we send response or after 25 seconds)
+      await markAsRead(
+        textMessage.businessPhoneNumberId,
+        env.WHATSAPP_ACCESS_TOKEN,
+        message.messageId,
+        true // showTypingIndicator
+      );
 
-    // Now show typing indicator (auto-dismisses when we send response or after 25 seconds)
-    await markAsRead(
-      textMessage.businessPhoneNumberId,
-      env.WHATSAPP_ACCESS_TOKEN,
-      message.messageId,
-      true // showTypingIndicator
-    );
-
-    // Get business config
-    const business = await db.getBusinessByPhoneId(env.DB, textMessage.businessPhoneNumberId);
-    if (!business) {
-      console.error(`No business found for phone ID: ${textMessage.businessPhoneNumberId}`);
-      // For demo, fall back to demo business
-      const demoBusiness = await db.getBusinessById(env.DB, 'demo-store-001');
-      if (!demoBusiness) {
-        console.error('Demo business not found. Please seed the database.');
+      // Get business config
+      const business = await db.getBusinessByPhoneId(env.DB, textMessage.businessPhoneNumberId);
+      if (!business) {
+        console.error(`No business found for phone ID: ${textMessage.businessPhoneNumberId}`);
+        // For demo, fall back to demo business
+        const demoBusiness = await db.getBusinessById(env.DB, 'demo-store-001');
+        if (!demoBusiness) {
+          console.error('Demo business not found. Please seed the database.');
+          return;
+        }
+        // Continue with demo business
+        await processMessage(env, ctx, demoBusiness, textMessage);
         return;
       }
-      // Continue with demo business
-      await processMessage(env, ctx, demoBusiness, textMessage);
+
+      await processMessage(env, ctx, business, textMessage);
+
+    } else if (message.type === 'audio' && isAudioMessage(message.raw)) {
+      // Audio message - transcribe first, then process
+      console.log(`Processing audio message from ${message.from}`);
+      await processAudioMessage(env, ctx, message);
+
+    } else {
+      console.log(`Ignoring message type: ${message.type}`);
       return;
     }
-
-    await processMessage(env, ctx, business, textMessage);
   } catch (error) {
     console.error('Error handling incoming message:', error);
   }
@@ -329,6 +336,129 @@ async function processMessage(
     lead.id,
     { role: 'assistant', content: agentResponse.message }
   );
+}
+
+// ============================================================================
+// Audio Message Processing
+// ============================================================================
+
+async function processAudioMessage(
+  env: Env,
+  ctx: ExecutionContext,
+  message: {
+    businessPhoneNumberId: string;
+    from: string;
+    fromName: string;
+    messageId: string;
+    type: string;
+    raw: any; // AudioMessage after type guard
+  }
+): Promise<void> {
+  // Extract audio metadata (type guard already verified this exists)
+  const audioId = message.raw.audio.id;
+  const audioSha256 = message.raw.audio.sha256;
+
+  console.log(`Processing audio message from ${message.from} (ID: ${audioId})`);
+
+  // Mark as read immediately
+  await markAsRead(
+    message.businessPhoneNumberId,
+    env.WHATSAPP_ACCESS_TOKEN,
+    message.messageId,
+    false
+  );
+
+  // Small delay before showing typing
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Show typing indicator
+  await markAsRead(
+    message.businessPhoneNumberId,
+    env.WHATSAPP_ACCESS_TOKEN,
+    message.messageId,
+    true
+  );
+
+  // Transcribe the audio
+  const transcriptionResult = await transcribeAudioMessage(
+    audioId,
+    audioSha256,
+    env.OPENAI_API_KEY,
+    env.WHATSAPP_ACCESS_TOKEN,
+    env.CONVERSATIONS
+  );
+
+  // Handle transcription errors
+  if ('error' in transcriptionResult) {
+    console.error('Transcription failed:', transcriptionResult);
+
+    // Send user-friendly error message based on error type
+    let errorMessage = "I had trouble understanding that voice message. Could you send it as text or try again?";
+
+    if (transcriptionResult.type === 'download_failed') {
+      errorMessage = "I couldn't access that voice message. Could you send it again or type your message?";
+    } else if (transcriptionResult.type === 'invalid_audio') {
+      errorMessage = "That audio file seems too large or invalid. Could you send a shorter message or type it out?";
+    } else if (transcriptionResult.type === 'rate_limit') {
+      errorMessage = "I'm experiencing high traffic right now. Could you try again in a moment or send a text message?";
+    }
+
+    await sendTextMessage(
+      message.businessPhoneNumberId,
+      env.WHATSAPP_ACCESS_TOKEN,
+      message.from,
+      errorMessage
+    );
+    return;
+  }
+
+  // Log successful transcription
+  console.log(`Transcription successful: "${transcriptionResult.text}" (${transcriptionResult.language || 'unknown'}, confidence: ${transcriptionResult.confidence}, cached: ${transcriptionResult.cached})`);
+
+  // Warn on low confidence
+  if (transcriptionResult.confidence === 'low') {
+    console.warn(`Low confidence transcription for audio ${audioId}`);
+  }
+
+  // Get business config
+  const business = await db.getBusinessByPhoneId(env.DB, message.businessPhoneNumberId);
+  if (!business) {
+    console.error(`No business found for phone ID: ${message.businessPhoneNumberId}`);
+    const demoBusiness = await db.getBusinessById(env.DB, 'demo-store-001');
+    if (!demoBusiness) {
+      console.error('Demo business not found. Please seed the database.');
+      return;
+    }
+    // Continue with demo business
+    await processTranscribedAudio(env, ctx, demoBusiness, message, transcriptionResult.text);
+    return;
+  }
+
+  await processTranscribedAudio(env, ctx, business, message, transcriptionResult.text);
+}
+
+// Helper function to process transcribed audio as text
+async function processTranscribedAudio(
+  env: Env,
+  ctx: ExecutionContext,
+  business: db.Business,
+  message: {
+    businessPhoneNumberId: string;
+    from: string;
+    fromName: string;
+  },
+  transcribedText: string
+): Promise<void> {
+  // Create a text message object from the transcribed audio
+  const textMessage = {
+    businessPhoneNumberId: message.businessPhoneNumberId,
+    from: message.from,
+    fromName: message.fromName,
+    text: transcribedText
+  };
+
+  // Process using existing text message flow
+  await processMessage(env, ctx, business, textMessage);
 }
 
 // ============================================================================
