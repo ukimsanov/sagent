@@ -601,43 +601,51 @@ async function executeToolCall(
         };
       }
 
-      if (!product.image_url) {
+      if (product.image_urls.length === 0) {
         return {
           success: false,
-          message: 'No image available for this product'
+          message: 'No images available for this product'
         };
       }
 
-      // Send image via WhatsApp if config is available
+      // Send image(s) via WhatsApp if config is available
       if (whatsappConfig) {
-        const caption = `${product.name}${product.price ? ` - $${product.price}` : ''}`;
-
         try {
-          await sendImageMessage(
-            whatsappConfig.phoneNumberId,
-            whatsappConfig.accessToken,
-            whatsappConfig.recipientNumber,
-            product.image_url,
-            caption
-          );
+          // Send all images
+          for (let i = 0; i < product.image_urls.length; i++) {
+            const imageUrl = product.image_urls[i];
+            // Only add caption to first image
+            const caption = i === 0
+              ? `${product.name}${product.price ? ` - $${product.price}` : ''}`
+              : undefined;
 
+            await sendImageMessage(
+              whatsappConfig.phoneNumberId,
+              whatsappConfig.accessToken,
+              whatsappConfig.recipientNumber,
+              imageUrl,
+              caption
+            );
+          }
+
+          const imageCount = product.image_urls.length;
           return {
             success: true,
-            message: `Image sent for ${product.name}`,
+            message: `${imageCount} image${imageCount > 1 ? 's' : ''} sent for ${product.name}`,
             image_sent: true
           };
         } catch (error) {
-          console.error('Failed to send image:', error);
+          console.error('Failed to send images:', error);
           return {
             success: false,
-            message: 'Failed to send image'
+            message: 'Failed to send images'
           };
         }
       }
 
       return {
         success: false,
-        message: 'Cannot send image - WhatsApp not configured'
+        message: 'Cannot send images - WhatsApp not configured'
       };
     }
 

@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS products (
   in_stock INTEGER DEFAULT 1,
   stock_quantity INTEGER,
   metadata TEXT, -- JSON for sizes, colors, variants, etc.
-  image_url TEXT, -- R2 URL for product image
+  image_url TEXT, -- JSON array: '["url1"]' for one image, '["url1", "url2"]' for multiple
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch()),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE

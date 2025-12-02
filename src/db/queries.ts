@@ -44,13 +44,15 @@ export interface Product {
   in_stock: number;
   stock_quantity: number | null;
   metadata: string | null; // JSON string
-  image_url: string | null; // R2 URL for product image
+  image_url: string | null; // JSON array: '["url1", "url2"]'
   created_at: number;
   updated_at: number;
 }
 
-export interface ProductWithMetadata extends Omit<Product, 'metadata'> {
+export interface ProductWithMetadata extends Omit<Product, 'metadata' | 'image_url'> {
   metadata: Record<string, unknown> | null;
+  image_url: string | null; // Raw field (JSON array string)
+  image_urls: string[]; // Parsed array of image URLs
 }
 
 export interface Lead {
@@ -242,8 +244,25 @@ export async function getAllCategories(
 function parseProductMetadata(product: Product): ProductWithMetadata {
   return {
     ...product,
-    metadata: product.metadata ? JSON.parse(product.metadata) : null
+    metadata: product.metadata ? JSON.parse(product.metadata) : null,
+    image_urls: parseImageUrls(product.image_url)
   };
+}
+
+/**
+ * Parse image_url field which is always a JSON array
+ * '["url1", "url2"]' → ["url1", "url2"]
+ * null → []
+ */
+function parseImageUrls(imageUrl: string | null): string[] {
+  if (!imageUrl) return [];
+
+  try {
+    const parsed = JSON.parse(imageUrl);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 // ============================================================================
