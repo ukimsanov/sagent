@@ -98,7 +98,7 @@ export async function runAgent(
   const { business, lead, conversationSummary, conversationHistory } = context;
 
   // Build the system prompt with all context
-  const instructions = buildSystemPrompt(business, lead, conversationSummary);
+  const instructions = buildSystemPrompt(business, lead, conversationSummary, conversationHistory);
 
   // Build input array for Responses API
   // If we have a previous_response_id, OpenAI already has the conversation context
@@ -186,6 +186,9 @@ export async function runAgent(
 
       toolsCalled.push(toolName);
 
+      // Log tool execution for debugging
+      console.log(`🔧 Tool Called: ${toolName}`, toolArgs);
+
       // Execute the tool
       const toolResult = await executeToolCall(
         database,
@@ -195,6 +198,15 @@ export async function runAgent(
         toolArgs,
         options?.whatsappConfig
       );
+
+      // Log search results specifically
+      if (toolName === 'search_products') {
+        const result = toolResult as any;
+        console.log(`🔍 Search Result: Found ${result.total || 0} products for "${toolArgs.query}"`);
+        if (result.total === 0) {
+          console.log('⚠️  EMPTY SEARCH - AI should NOT suggest alternatives without searching');
+        }
+      }
 
       // Track lead score changes and human flags
       if (toolName === 'update_lead_score') {
@@ -264,6 +276,15 @@ export async function runAgent(
       finalMessage = textContent.text;
     }
   }
+
+  // Log final response for debugging
+  console.log('💬 AI Response:', {
+    messagePreview: finalMessage.substring(0, 150) + (finalMessage.length > 150 ? '...' : ''),
+    toolsCalled,
+    leadScoreChange,
+    flaggedForHuman,
+    responseId: response.id
+  });
 
   return {
     message: finalMessage,

@@ -67,6 +67,11 @@ export default {
       return new Response('OK', { status: 200 });
     }
 
+    // Cleanup endpoint for testing (removes all data for a specific WhatsApp number)
+    if (url.pathname === '/cleanup' && request.method === 'POST') {
+      return handleCleanup(request, env);
+    }
+
     // WhatsApp webhook endpoint
     if (url.pathname === '/webhook') {
       if (request.method === 'GET') {
@@ -103,6 +108,97 @@ export default {
     return new Response('Not Found', { status: 404 });
   }
 } satisfies ExportedHandler<Env>;
+
+// ============================================================================
+// Cleanup Endpoint (POST /cleanup) - For Testing
+// ============================================================================
+
+async function handleCleanup(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = await request.json() as { whatsapp_number?: string; secret?: string };
+    const whatsappNumber = body.whatsapp_number;
+    const secret = body.secret;
+
+    // Simple auth check
+    if (secret !== 'DELETE_MY_DATA_123') {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!whatsappNumber) {
+      return new Response(JSON.stringify({ error: 'whatsapp_number required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log(`🧹 Cleanup requested for WhatsApp number: ${whatsappNumber}`);
+
+    // Find lead(s) with this WhatsApp number
+    const leads = await env.DB
+      .prepare('SELECT id, business_id FROM leads WHERE whatsapp_number = ?')
+      .bind(whatsappNumber)
+      .all();
+
+    if (!leads.results || leads.results.length === 0) {
+      console.log('No data found for this number');
+      return new Response(JSON.stringify({
+        success: true,
+        message: 'No data found for this number',
+        deleted: 0
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    let deletedCount = 0;
+
+    for (const lead of leads.results) {
+      const leadId = (lead as any).id;
+      const businessId = (lead as any).business_id;
+
+      console.log(`Deleting data for lead: ${leadId}`);
+
+      // Delete from D1 in batch
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM conversation_summaries WHERE lead_id = ?').bind(leadId),
+        env.DB.prepare('DELETE FROM human_flags WHERE lead_id = ?').bind(leadId),
+        env.DB.prepare('DELETE FROM appointments WHERE lead_id = ?').bind(leadId),
+        env.DB.prepare('DELETE FROM callback_requests WHERE lead_id = ?').bind(leadId),
+        env.DB.prepare('DELETE FROM leads WHERE id = ?').bind(leadId)
+      ]);
+
+      // Delete from KV (conversation history)
+      const kvKey = `conv:${businessId}:${whatsappNumber}:${leadId}`;
+      await env.CONVERSATIONS.delete(kvKey);
+      console.log(`Deleted KV key: ${kvKey}`);
+
+      deletedCount++;
+    }
+
+    console.log(`✅ Cleanup complete: deleted ${deletedCount} lead record(s)`);
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: `Deleted ${deletedCount} lead record(s) and all related data`,
+      deleted: deletedCount
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('Cleanup error:', error);
+    return new Response(JSON.stringify({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
 
 // ============================================================================
 // Webhook Verification (GET /webhook)
