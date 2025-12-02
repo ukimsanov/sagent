@@ -14,7 +14,7 @@ export const AGENT_TOOLS = [
   {
     type: 'function' as const,
     name: 'search_products',
-    description: 'Search for products by name, description, or keywords. Use this when the customer asks about products, what you have, or mentions a product name.',
+    description: 'Search for products by name, description, or keywords. Returns empty array if no products match. CRITICAL: If search returns 0 products, you MUST tell the customer you don\'t have that item and stop asking about it. Never continue discussing products that returned 0 results.',
     parameters: {
       type: 'object',
       properties: {
