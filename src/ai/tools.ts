@@ -203,7 +203,7 @@ export const AGENT_TOOLS = [
   {
     type: 'function' as const,
     name: 'send_promo_code',
-    description: 'Send a discount/promo code to the customer. Use when customer shows interest and could be nudged towards purchase with a discount.',
+    description: 'Send a discount/promo code to the customer. IMPORTANT: Only use this AFTER customer has shared their contact info (name/email via capture_lead_info). Use when customer shows interest and could be nudged towards purchase with a discount.',
     parameters: {
       type: 'object',
       properties: {
@@ -213,6 +213,23 @@ export const AGENT_TOOLS = [
         }
       },
       required: ['reason'],
+      additionalProperties: false
+    },
+    strict: true
+  },
+  {
+    type: 'function' as const,
+    name: 'send_product_image',
+    description: 'Send a product image to the customer. Use when customer asks to see a product, wants to see what it looks like, or needs visual confirmation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        product_id: {
+          type: 'string',
+          description: 'The product ID to send image for'
+        }
+      },
+      required: ['product_id'],
       additionalProperties: false
     },
     strict: true
@@ -306,6 +323,12 @@ export interface PromoCodeResult {
   discount?: string;
 }
 
+export interface ProductImageResult {
+  success: boolean;
+  message: string;
+  image_sent?: boolean;
+}
+
 export type ToolResult =
   | SearchProductsResult
   | ProductDetailsResult
@@ -316,4 +339,5 @@ export type ToolResult =
   | LeadCaptureResult
   | CallbackRequestResult
   | AppointmentResult
-  | PromoCodeResult;
+  | PromoCodeResult
+  | ProductImageResult;

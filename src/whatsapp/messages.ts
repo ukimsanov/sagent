@@ -123,6 +123,36 @@ export async function sendListMessage(
 }
 
 /**
+ * Send an image message with optional caption
+ * Uses direct URL link from R2 or any public URL
+ *
+ * Supported formats: JPEG, PNG (8-bit RGB/RGBA, max 5MB)
+ * Caption max length: 1024 characters
+ *
+ * Official docs: https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/image-messages
+ */
+export async function sendImageMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  imageUrl: string,
+  caption?: string
+): Promise<SendMessageResponse> {
+  const payload: Record<string, unknown> = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'image',
+    image: {
+      link: imageUrl,
+      ...(caption && { caption: caption.substring(0, 1024) }) // Max 1024 chars
+    }
+  };
+
+  return sendMessage(phoneNumberId, accessToken, payload as unknown as SendTextMessageRequest);
+}
+
+/**
  * Mark a message as read and optionally show typing indicator
  * When showTypingIndicator is true, the typing indicator will show
  * and auto-dismiss after 25 seconds or when a message is sent

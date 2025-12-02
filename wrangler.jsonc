@@ -28,6 +28,14 @@
 			"binding": "CONVERSATIONS",
 			"id": "d2cf96c706c14823813c1d5f957ef63e"
 		}
+	],
+
+	// R2 Bucket for product images
+	"r2_buckets": [
+		{
+			"binding": "PRODUCT_IMAGES",
+			"bucket_name": "product-images"
+		}
 	]
 
 	// Secrets (set via `wrangler secret put`):

@@ -9,6 +9,7 @@ import { AGENT_TOOLS } from './tools';
 import { buildSystemPrompt } from './prompts';
 import type { Business, Lead, ConversationSummary, ProductWithMetadata } from '../db/queries';
 import * as db from '../db/queries';
+import { sendImageMessage } from '../whatsapp/messages';
 
 // ============================================================================
 // Types
@@ -87,6 +88,11 @@ export async function runAgent(
   options?: {
     previousResponseId?: string;
     promptCacheKey?: string;
+    whatsappConfig?: {
+      phoneNumberId: string;
+      accessToken: string;
+      recipientNumber: string;
+    };
   }
 ): Promise<AgentResponse> {
   const { business, lead, conversationSummary, conversationHistory } = context;
@@ -186,7 +192,8 @@ export async function runAgent(
         business.id,
         lead.id,
         toolName,
-        toolArgs
+        toolArgs,
+        options?.whatsappConfig
       );
 
       // Track lead score changes and human flags
@@ -407,7 +414,12 @@ async function executeToolCall(
   businessId: string,
   leadId: string,
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  whatsappConfig?: {
+    phoneNumberId: string;
+    accessToken: string;
+    recipientNumber: string;
+  }
 ): Promise<unknown> {
   switch (toolName) {
     case 'search_products': {
@@ -576,6 +588,56 @@ async function executeToolCall(
         message: `Promo code sent: ${promo.code}`,
         code: promo.code,
         discount
+      };
+    }
+
+    case 'send_product_image': {
+      const product = await db.getProductById(database, args.product_id as string);
+
+      if (!product) {
+        return {
+          success: false,
+          message: 'Product not found'
+        };
+      }
+
+      if (!product.image_url) {
+        return {
+          success: false,
+          message: 'No image available for this product'
+        };
+      }
+
+      // Send image via WhatsApp if config is available
+      if (whatsappConfig) {
+        const caption = `${product.name}${product.price ? ` - $${product.price}` : ''}`;
+
+        try {
+          await sendImageMessage(
+            whatsappConfig.phoneNumberId,
+            whatsappConfig.accessToken,
+            whatsappConfig.recipientNumber,
+            product.image_url,
+            caption
+          );
+
+          return {
+            success: true,
+            message: `Image sent for ${product.name}`,
+            image_sent: true
+          };
+        } catch (error) {
+          console.error('Failed to send image:', error);
+          return {
+            success: false,
+            message: 'Failed to send image'
+          };
+        }
+      }
+
+      return {
+        success: false,
+        message: 'Cannot send image - WhatsApp not configured'
       };
     }
 

@@ -143,7 +143,7 @@ function buildGoalInstructions(goals: GoalType[], address: string | null): strin
   }
 
   if (goals.includes('promo_delivery')) {
-    instructions.push('- You can offer discount codes to interested customers (use send_promo_code tool)');
+    instructions.push('- You can offer discount codes to interested customers (use send_promo_code tool) - ONLY AFTER they share their contact info');
   }
 
   return instructions.join('\n');

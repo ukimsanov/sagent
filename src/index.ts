@@ -273,7 +273,13 @@ async function processMessage(
       // Use previous response ID for conversation chaining (reduces tokens)
       previousResponseId: conversation.lastResponseId,
       // Use business ID for prompt cache key (better cache hits per business)
-      promptCacheKey: business.id
+      promptCacheKey: business.id,
+      // WhatsApp config for sending images via send_product_image tool
+      whatsappConfig: {
+        phoneNumberId: business.whatsapp_phone_id,
+        accessToken: env.WHATSAPP_ACCESS_TOKEN,
+        recipientNumber: message.from
+      }
     }
   );
 
