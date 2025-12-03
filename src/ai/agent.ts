@@ -57,7 +57,8 @@ interface MessageItem {
 interface ReasoningItem {
   type: 'reasoning';
   id: string;
-  content: unknown[];
+  summary?: unknown[];
+  content?: unknown[];
 }
 
 type OutputItem = FunctionCallItem | MessageItem | ReasoningItem | { type: string };
@@ -224,16 +225,37 @@ export async function runAgent(
     }
 
     // Call API again with function results
-    response = await callResponsesAPIWithResults(
-      openaiApiKey,
-      instructions,
-      input,
-      AGENT_TOOLS,
-      allItems,
-      functionResults
-    );
+    try {
+      response = await callResponsesAPIWithResults(
+        openaiApiKey,
+        instructions,
+        input,
+        AGENT_TOOLS,
+        allItems,
+        functionResults
+      );
 
-    allItems = [...allItems, ...functionResults, ...response.output];
+      allItems = [...allItems, ...functionResults, ...response.output];
+
+      // Debug: Log the response structure after tool calling
+      console.log('🔍 Response after tool call - output types:', response.output.map(o => o.type).join(', '));
+      console.log('🔍 Full response.output:', JSON.stringify(response.output, null, 2));
+    } catch (error) {
+      console.error('❌ Error calling API with tool results:', error);
+      // If timeout, return a simple fallback message without tools
+      if (error instanceof Error && error.message.includes('timeout')) {
+        console.log('⏱️  API timeout - using fallback response');
+        // Create a simple fallback message without calling the API again
+        return {
+          message: "I'm sorry, I'm experiencing technical difficulties. Could you please try again in a moment?",
+          toolsCalled,
+          leadScoreChange,
+          flaggedForHuman: true, // Flag for human due to error
+          responseId: response.id
+        };
+      }
+      throw error; // Re-throw other errors
+    }
   }
 
   // Check if we hit max iterations without getting a final message
@@ -249,26 +271,33 @@ export async function runAgent(
   // If no message found (model stuck in tool loop), make one more call without tools
   if (messageItems.length === 0) {
     console.log('No message in response - making final call without tools');
-    // Don't pass allItems (tool call history) - just ask for a direct response
-    // Add a system nudge to respond based on what was learned
-    const nudgedInput = [
-      ...input,
-      { role: 'user' as const, content: '[System: Please respond to the customer based on the product searches you performed. Do not call any more tools.]' }
-    ];
-    response = await callResponsesAPI(
-      openaiApiKey,
-      instructions + '\n\nIMPORTANT: Respond NOW with a text message. Do not call any tools.',
-      nudgedInput,
-      [], // No tools - force text response
-      {}
-    );
-    messageItems = response.output.filter(
-      (item): item is MessageItem => item.type === 'message'
-    );
+    try {
+      // Don't pass allItems (tool call history) - just ask for a direct response
+      // Add a system nudge to respond based on what was learned
+      const nudgedInput = [
+        ...input,
+        { role: 'user' as const, content: '[System: Please respond to the customer based on the product searches you performed. Do not call any more tools.]' }
+      ];
+      response = await callResponsesAPI(
+        openaiApiKey,
+        instructions + '\n\nIMPORTANT: Respond NOW with a text message. Do not call any tools.',
+        nudgedInput,
+        [], // No tools - force text response
+        {}
+      );
+      messageItems = response.output.filter(
+        (item): item is MessageItem => item.type === 'message'
+      );
+    } catch (error) {
+      console.error('❌ Fallback call failed:', error);
+      // Use empty messageItems - will fall back to default message
+      messageItems = [];
+    }
   }
 
   let finalMessage = "I'm sorry, I couldn't process that request.";
 
+  // Extract the message text directly (no XML parsing - using built-in reasoning)
   if (messageItems.length > 0) {
     const lastMessage = messageItems[messageItems.length - 1];
     const textContent = lastMessage.content.find(c => c.type === 'output_text');
@@ -316,7 +345,8 @@ async function callResponsesAPI(
     input,
     max_output_tokens: 2000,
     reasoning: {
-      effort: 'low'
+      effort: 'low',
+      summary: 'auto'
     }
   };
 
@@ -340,14 +370,30 @@ async function callResponsesAPI(
     requestBody.prompt_cache_key = options.promptCacheKey;
   }
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestBody)
-  });
+  // Add 25-second timeout to prevent Worker timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('OpenAI API timeout after 25 seconds');
+      throw new Error('OpenAI API timeout - request took too long');
+    }
+    throw error;
+  }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const error = await response.text();
@@ -391,7 +437,8 @@ async function callResponsesAPIWithResults(
     input,
     max_output_tokens: 2000,
     reasoning: {
-      effort: 'low'
+      effort: 'low',
+      summary: 'auto'
     }
   };
 
@@ -405,14 +452,30 @@ async function callResponsesAPIWithResults(
     }));
   }
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestBody)
-  });
+  // Add 25-second timeout to prevent Worker timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('OpenAI API timeout after 25 seconds');
+      throw new Error('OpenAI API timeout - request took too long');
+    }
+    throw error;
+  }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const error = await response.text();

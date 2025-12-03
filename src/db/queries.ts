@@ -164,9 +164,9 @@ export async function searchProducts(
   let sql = `
     SELECT * FROM products
     WHERE business_id = ?
-    AND (LOWER(name) LIKE ? OR LOWER(description) LIKE ?)
+    AND (LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(category) LIKE ?)
   `;
-  const params: (string | undefined)[] = [businessId, searchTerm, searchTerm];
+  const params: (string | undefined)[] = [businessId, searchTerm, searchTerm, searchTerm];
 
   if (category) {
     sql += ' AND LOWER(category) = ?';
