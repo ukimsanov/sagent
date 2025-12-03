@@ -13,8 +13,16 @@
  * - Predictable responses, no timeouts
  */
 
-import { searchProducts, getAllCategories } from '../db/queries';
+import { searchProducts, getAllCategories, createHumanFlag } from '../db/queries';
 import type { Business, Lead, ProductWithMetadata, ConversationSummary } from '../db/queries';
+import {
+  classifyIntent,
+  isVagueQuery,
+  getClarifyingQuestion,
+  shouldAutoHandoff,
+  type Intent,
+  type ConversationContext
+} from './intents';
 
 // ============================================================================
 // Types
@@ -27,21 +35,25 @@ export interface HandlerContext {
   lead: Lead;
   messageText: string;
   openaiApiKey: string;
-  // v2: Conversation context for "feels like a person" responses
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
   conversationSummary: ConversationSummary | null;
 }
 
-type Intent =
-  | { type: 'greeting' }
-  | { type: 'thanks' }
-  | { type: 'handoff_request' }
-  | { type: 'product_search'; query: string };
-
+/** Structured response with action tracking for analytics */
 interface HandlerResponse {
   message: string;
+  action: ResponseAction;
   flaggedForHuman: boolean;
 }
+
+type ResponseAction =
+  | 'show_products'
+  | 'ask_clarification'
+  | 'answer_question'
+  | 'empathize'
+  | 'greet'
+  | 'thank'
+  | 'handoff';
 
 // ============================================================================
 // Main Entry Point
@@ -52,106 +64,84 @@ interface HandlerResponse {
  * Worker calls this instead of the tool-calling agent.
  */
 export async function handleIncomingMessage(ctx: HandlerContext): Promise<HandlerResponse> {
-  const intent = classifyIntent(ctx.messageText, ctx.conversationHistory);
+  // Build conversation context for intent classification
+  const convContext: ConversationContext = {
+    history: ctx.conversationHistory,
+    recentClarifications: countRecentClarifications(ctx.conversationHistory)
+  };
 
+  // Check for auto-handoff conditions
+  if (shouldAutoHandoff(convContext)) {
+    console.log('🚨 Auto-handoff triggered: too many clarifications or repeated messages');
+    await createHumanFlag(ctx.db, ctx.lead.id, 'medium', 'Auto-handoff: conversation stuck');
+    return {
+      message: handleAutoHandoff(ctx),
+      action: 'handoff',
+      flaggedForHuman: true
+    };
+  }
+
+  // Classify intent
+  const intent = classifyIntent(ctx.messageText, convContext);
   console.log('🎯 Intent classified:', intent.type);
 
+  // Route to appropriate handler
   switch (intent.type) {
     case 'greeting':
-      return { message: handleGreeting(ctx), flaggedForHuman: false };
+      return {
+        message: handleGreeting(ctx),
+        action: 'greet',
+        flaggedForHuman: false
+      };
+
     case 'thanks':
-      return { message: handleThanks(ctx), flaggedForHuman: false };
+      return {
+        message: handleThanks(ctx),
+        action: 'thank',
+        flaggedForHuman: false
+      };
+
     case 'handoff_request':
-      return { message: handleHandoff(ctx), flaggedForHuman: true };
+      await createHumanFlag(ctx.db, ctx.lead.id, 'low', 'Customer requested human');
+      return {
+        message: handleHandoff(ctx),
+        action: 'handoff',
+        flaggedForHuman: true
+      };
+
+    case 'complaint':
+      return await handleComplaint(intent, ctx);
+
+    case 'order_status':
+      return handleOrderStatus(ctx);
+
+    case 'sizing_help':
+      return await handleSizingHelp(intent, ctx);
+
+    case 'pricing_question':
+      return await handlePricingQuestion(intent, ctx);
+
+    case 'comparison':
+      return await handleComparison(intent, ctx);
+
+    case 'recommendation':
+      return await handleRecommendation(intent, ctx);
+
     case 'product_search':
       return await handleProductSearch(intent, ctx);
   }
 }
 
 // ============================================================================
-// Intent Classification (Rule-Based, NO LLM)
+// Helper Functions
 // ============================================================================
 
-function classifyIntent(text: string, conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>): Intent {
-  const lower = text.toLowerCase().trim();
-
-  // Greetings (must be at start of message)
-  if (/^(hi|hello|hey|hola|good morning|good afternoon|good evening|yo|sup)\b/.test(lower)) {
-    return { type: 'greeting' };
-  }
-
-  // Thanks (must be at start of message)
-  if (/^(thanks|thank you|thx|ty|appreciate it)\b/.test(lower)) {
-    return { type: 'thanks' };
-  }
-
-  // Handoff request (anywhere in message)
-  if (/\b(human|agent|person|representative|talk to someone|speak to someone|real person)\b/.test(lower)) {
-    return { type: 'handoff_request' };
-  }
-
-  // Everything else is a product search - extract the actual query
-  const query = extractSearchQuery(text, conversationHistory);
-  return { type: 'product_search', query };
-}
-
-/**
- * Extract the actual product search terms from a message.
- * Removes common conversational prefixes like "show me", "I want", etc.
- * Also detects contextual references like "what goes with that" and uses conversation history.
- */
-function extractSearchQuery(text: string, conversationHistory?: Array<{ role: string; content: string }>): string {
-  let query = text.toLowerCase().trim();
-
-  // Check for contextual follow-up patterns like "what goes with that"
-  const contextualPatterns = [
-    /^what (goes|pairs|matches|looks good) with (that|this|it|them)\??$/i,
-    /^(something|anything) (to go|that goes|to match|that matches) with (that|this|it|them)\??$/i,
-    /^(and|what about) (pants|jeans|shoes|accessories|tops|bottoms) (to go with|for) (that|this|it|them)\??$/i,
-  ];
-
-  const isContextualFollowUp = contextualPatterns.some(p => p.test(query));
-
-  if (isContextualFollowUp && conversationHistory && conversationHistory.length > 0) {
-    // Find the last product category mentioned in the conversation
-    const lastAssistantMessage = [...conversationHistory]
-      .reverse()
-      .find(m => m.role === 'assistant');
-
-    if (lastAssistantMessage) {
-      // Extract category hints from the last response
-      const content = lastAssistantMessage.content.toLowerCase();
-      if (content.includes('hoodie')) {
-        // For hoodies, suggest complementary items
-        return 'jeans pants';
-      } else if (content.includes('jeans') || content.includes('pants')) {
-        return 't-shirts tops';
-      } else if (content.includes('t-shirt') || content.includes('tee')) {
-        return 'jeans pants';
-      }
-    }
-    // Default: search for complementary items broadly
-    return 'jeans pants accessories';
-  }
-
-  // Remove common conversational prefixes
-  const prefixes = [
-    /^(can you )?(please )?(show me|let me see|i('d)? (want|like|need) (to see)?|do you have|got any|looking for|searching for|find me|get me)\s*/i,
-    /^(i('m)? (interested in|looking for))\s*/i,
-    /^(what|which) .* do you have\??$/i,
-    /^(any|some)\b\s*/i,
-    /^something (for|to wear to|to go with)\s*/i,  // "something for a wedding" → "a wedding"
-  ];
-
-  for (const prefix of prefixes) {
-    query = query.replace(prefix, '');
-  }
-
-  // Remove trailing question marks and leading articles, clean up
-  query = query.replace(/\?+$/, '').replace(/^(a|an|the)\s+/i, '').trim();
-
-  // If we've stripped everything, use original text
-  return query || text;
+function countRecentClarifications(history: Array<{ role: string; content: string }>): number {
+  // Count assistant messages that end with questions in last 6 messages
+  const recent = history.slice(-6);
+  return recent.filter(m =>
+    m.role === 'assistant' && m.content.trim().endsWith('?')
+  ).length;
 }
 
 // ============================================================================
@@ -162,22 +152,262 @@ function handleGreeting(ctx: HandlerContext): string {
   const name = ctx.lead.name;
   const businessName = ctx.business.name;
 
-  if (name) {
-    return `Hey ${name}! Welcome back to ${businessName}. What can I help you find today?`;
+  // Check if returning customer
+  const daysSinceLastContact = Math.floor((Date.now() / 1000 - ctx.lead.last_contact) / 86400);
+  const isReturning = ctx.lead.message_count > 1 && daysSinceLastContact >= 3;
+
+  if (isReturning && name) {
+    return `Hey ${name}! Good to see you again. What can I help you with today?`;
   }
-  return `Hey! Welcome to ${businessName}. What can I help you find today?`;
+
+  if (name) {
+    return `Hey ${name}! Welcome to ${businessName}. What are you looking for today?`;
+  }
+
+  return `Hey! Welcome to ${businessName}. What can I help you find?`;
 }
 
-function handleThanks(_ctx: HandlerContext): string {
+function handleThanks(ctx: HandlerContext): string {
+  const name = ctx.lead.name;
+  if (name) {
+    return `You're welcome, ${name}! Let me know if you need anything else.`;
+  }
   return `You're welcome! Let me know if you need anything else.`;
 }
 
-function handleHandoff(_ctx: HandlerContext): string {
-  return `I'll have someone from our team reach out to you shortly!`;
+function handleHandoff(ctx: HandlerContext): string {
+  const name = ctx.lead.name;
+  if (name) {
+    return `Got it, ${name}! I'll have someone from our team reach out to you shortly.`;
+  }
+  return `No problem! I'll have someone from our team reach out to you shortly.`;
+}
+
+function handleAutoHandoff(ctx: HandlerContext): string {
+  const name = ctx.lead.name;
+  const base = "I want to make sure you get the help you need.";
+  const action = "Let me connect you with someone from our team who can assist better.";
+
+  if (name) {
+    return `${name}, ${base} ${action}`;
+  }
+  return `${base} ${action}`;
+}
+
+function handleOrderStatus(ctx: HandlerContext): HandlerResponse {
+  // We don't have order system access - flag for human
+  return {
+    message: "I'd love to help with your order! Let me connect you with someone who can look that up for you.",
+    action: 'handoff',
+    flaggedForHuman: true
+  };
 }
 
 // ============================================================================
-// Product Search Handler (Code-First)
+// Complaint Handler
+// ============================================================================
+
+async function handleComplaint(
+  intent: { type: 'complaint'; severity: 'low' | 'medium' | 'high' },
+  ctx: HandlerContext
+): Promise<HandlerResponse> {
+  const name = ctx.lead.name ? `${ctx.lead.name}, ` : '';
+
+  // Always flag complaints for human review
+  await createHumanFlag(ctx.db, ctx.lead.id, intent.severity, `Customer complaint: ${ctx.messageText.substring(0, 100)}`);
+
+  if (intent.severity === 'high') {
+    return {
+      message: `${name}I'm really sorry you're having this experience. This is important and I want to make sure it's handled properly. Let me get someone from our team to help you right away.`,
+      action: 'empathize',
+      flaggedForHuman: true
+    };
+  }
+
+  if (intent.severity === 'medium') {
+    return {
+      message: `${name}I'm sorry to hear that. I understand this is frustrating. Would you like me to connect you with someone who can help resolve this?`,
+      action: 'empathize',
+      flaggedForHuman: true
+    };
+  }
+
+  // Low severity - try to help first
+  return {
+    message: `${name}I'm sorry for any confusion. Let me try to help - can you tell me a bit more about what's going on?`,
+    action: 'empathize',
+    flaggedForHuman: true
+  };
+}
+
+// ============================================================================
+// Sizing Help Handler
+// ============================================================================
+
+async function handleSizingHelp(
+  intent: { type: 'sizing_help'; query: string },
+  ctx: HandlerContext
+): Promise<HandlerResponse> {
+  // Search for products to get sizing info
+  const products = await searchProducts(ctx.db, ctx.businessId, intent.query);
+
+  if (products.length === 0) {
+    return {
+      message: "I can help with sizing! What item are you looking at?",
+      action: 'ask_clarification',
+      flaggedForHuman: false
+    };
+  }
+
+  // Check if products have size metadata
+  const product = products[0];
+  const metadata = product.metadata as Record<string, unknown> | null;
+
+  if (metadata?.sizes) {
+    const sizes = metadata.sizes as string[];
+    return {
+      message: `The ${product.name} comes in: ${sizes.join(', ')}.\n\nMost customers find it runs true to size. What size do you usually wear?`,
+      action: 'answer_question',
+      flaggedForHuman: false
+    };
+  }
+
+  // Generic sizing response
+  return {
+    message: `For the ${product.name}, I'd recommend going with your usual size. If you're between sizes or prefer a looser fit, size up. What size are you thinking?`,
+    action: 'answer_question',
+    flaggedForHuman: false
+  };
+}
+
+// ============================================================================
+// Pricing Question Handler
+// ============================================================================
+
+async function handlePricingQuestion(
+  intent: { type: 'pricing_question'; query: string },
+  ctx: HandlerContext
+): Promise<HandlerResponse> {
+  const products = await searchProducts(ctx.db, ctx.businessId, intent.query);
+
+  if (products.length === 0) {
+    const categories = await getAllCategories(ctx.db, ctx.businessId);
+    return {
+      message: `What kind of items are you looking to price check? We have ${categories.join(', ')}.`,
+      action: 'ask_clarification',
+      flaggedForHuman: false
+    };
+  }
+
+  if (products.length === 1) {
+    const p = products[0];
+    return {
+      message: `The ${p.name} is $${p.price}. Want to know more about it?`,
+      action: 'answer_question',
+      flaggedForHuman: false
+    };
+  }
+
+  // Multiple products - show price range
+  const prices = products.map(p => p.price || 0).filter(p => p > 0);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+
+  if (min === max) {
+    return {
+      message: `Those are $${min} each. Want me to show you the options?`,
+      action: 'answer_question',
+      flaggedForHuman: false
+    };
+  }
+
+  return {
+    message: `Prices range from $${min} to $${max}. Want me to show you what's available?`,
+    action: 'answer_question',
+    flaggedForHuman: false
+  };
+}
+
+// ============================================================================
+// Comparison Handler
+// ============================================================================
+
+async function handleComparison(
+  intent: { type: 'comparison'; items: string[] },
+  ctx: HandlerContext
+): Promise<HandlerResponse> {
+  // Search for both items
+  const query = intent.items.join(' ');
+  const products = await searchProducts(ctx.db, ctx.businessId, query);
+
+  if (products.length < 2) {
+    return {
+      message: "I can help you compare! Which two items are you looking at?",
+      action: 'ask_clarification',
+      flaggedForHuman: false
+    };
+  }
+
+  // Use LLM to generate a natural comparison
+  const message = await generateComparisonCopy(products.slice(0, 2), ctx);
+  return {
+    message,
+    action: 'answer_question',
+    flaggedForHuman: false
+  };
+}
+
+// ============================================================================
+// Recommendation Handler
+// ============================================================================
+
+async function handleRecommendation(
+  intent: { type: 'recommendation'; context: string },
+  ctx: HandlerContext
+): Promise<HandlerResponse> {
+  // Use context to guide search
+  let searchQuery = intent.context;
+
+  // Map occasions to product categories
+  const occasionMap: Record<string, string> = {
+    'wedding': 'dress shirt formal',
+    'party': 'dress accessories',
+    'work': 'shirts pants formal',
+    'casual': 'jeans t-shirts hoodies',
+    'date': 'dress shirt jeans',
+    'gym': 'athletic sports',
+    'beach': 'shorts casual',
+    'formal': 'suit dress formal',
+    'streetwear': 'hoodies jeans sneakers',
+  };
+
+  if (occasionMap[intent.context.toLowerCase()]) {
+    searchQuery = occasionMap[intent.context.toLowerCase()];
+  }
+
+  const products = await searchProducts(ctx.db, ctx.businessId, searchQuery);
+
+  if (products.length === 0) {
+    // Try a broader search
+    const allProducts = await searchProducts(ctx.db, ctx.businessId, 'popular');
+    if (allProducts.length > 0) {
+      const message = await generateProductCopy(allProducts.slice(0, 4), ctx);
+      return { message, action: 'show_products', flaggedForHuman: false };
+    }
+
+    return {
+      message: "I'd love to help you find something! What style are you into - casual, dressy, or somewhere in between?",
+      action: 'ask_clarification',
+      flaggedForHuman: false
+    };
+  }
+
+  const message = await generateProductCopy(products.slice(0, 4), ctx);
+  return { message, action: 'show_products', flaggedForHuman: false };
+}
+
+// ============================================================================
+// Product Search Handler
 // ============================================================================
 
 async function handleProductSearch(
@@ -186,24 +416,42 @@ async function handleProductSearch(
 ): Promise<HandlerResponse> {
   console.log('🔍 Searching for:', intent.query);
 
-  // 1. Search products directly in code (from queries.ts)
+  // Check if query is too vague
+  if (isVagueQuery(intent.query)) {
+    const clarifyingQuestion = getClarifyingQuestion(intent.query);
+    console.log('📋 Vague query - asking clarifying question');
+    return {
+      message: clarifyingQuestion,
+      action: 'ask_clarification',
+      flaggedForHuman: false
+    };
+  }
+
+  // Search products
   const products = await searchProducts(ctx.db, ctx.businessId, intent.query);
   console.log(`🔍 Found ${products.length} products for query "${intent.query}"`);
 
-  // 2. DETERMINISTIC: 0 results = template, NO LLM
+  // DETERMINISTIC: 0 results = template, NO LLM
   if (products.length === 0) {
     const categories = await getAllCategories(ctx.db, ctx.businessId);
     console.log('📂 Available categories:', categories);
     console.log('📋 Using: TEMPLATE (0 results, no LLM)');
-    const message = buildNoProductsTemplate(intent.query, categories);
-    return { message, flaggedForHuman: false };
+    return {
+      message: buildNoProductsTemplate(intent.query, categories),
+      action: 'answer_question',
+      flaggedForHuman: false
+    };
   }
 
-  // 3. Products found = LLM as copywriter (one call, no tools)
-  const trimmed = products.slice(0, 8); // Hard cap at 8 products
+  // Products found = LLM as copywriter
+  const trimmed = products.slice(0, 6);
   console.log(`📋 Using: LLM COPYWRITER (${trimmed.length} products)`);
   const message = await generateProductCopy(trimmed, ctx);
-  return { message, flaggedForHuman: false };
+  return {
+    message,
+    action: 'show_products',
+    flaggedForHuman: false
+  };
 }
 
 /**
@@ -214,51 +462,46 @@ function buildNoProductsTemplate(query: string, categories: string[]): string {
     return `We don't carry "${query}" right now. Let me know what else I can help you find!`;
   }
 
-  return `We don't carry "${query}" right now.\n\n` +
-    `Here's what we do have: ${categories.join(', ')}.\n\n` +
-    `What are you most interested in?`;
+  return `We don't have "${query}" at the moment.\n\nWe do have: ${categories.join(', ')}.\n\nAnything there catch your eye?`;
 }
 
 // ============================================================================
-// LLM Copywriter (Single Call, No Tools)
+// LLM Copywriter Functions
 // ============================================================================
 
 /**
  * Build system prompt with persona, tone, and conversation logic.
- * v2: Makes responses feel like a real person.
  */
 function buildSystemPrompt(ctx: HandlerContext): string {
-  return `You are a WhatsApp sales assistant for ${ctx.business.name}.
+  const name = ctx.lead.name;
+  const greeting = name ? `You're chatting with ${name}.` : '';
+
+  return `You are a WhatsApp sales assistant for ${ctx.business.name}. ${greeting}
 
 PERSONALITY
 - Friendly, relaxed, confident - like a helpful store employee
-- Short messages: 1-3 sentences max
+- Short messages: 2-4 sentences max
 - Natural language: "yeah", "sure", "got it" when appropriate
 - Never say you're an AI or bot
+- Use their name occasionally but not every message
 
 BEHAVIOR
 - ONLY mention products from PRODUCTS list below
-- If request is vague, ask ONE clarifying question first
-- If PRODUCTS has many options, highlight 2-4 best matches
-- Always end with a simple next step ("Want to see more?" / "Any color preference?")
+- Highlight 2-3 best matches, not everything
+- Always end with a simple next step or question
+- If comparing products, be concise and helpful
 
-CONVERSATION LOGIC
-- If customer gave specific details (size, color, occasion) → recommend matching items
-- If request is vague → ask ONE question to narrow down
-- Never ask more than one question per message
-- Reference previous messages naturally when relevant`;
+FORMATTING
+- Keep it WhatsApp-friendly: short paragraphs, easy to read
+- One idea per paragraph
+- Use natural breaks, not bullet points for product lists`;
 }
 
 /**
  * Build customer context from lead data and conversation summary.
- * v2: Personalizes responses using stored customer info.
  */
 function buildCustomerContext(ctx: HandlerContext): string {
   const parts: string[] = [];
-
-  if (ctx.lead.name) {
-    parts.push(`Customer name: ${ctx.lead.name}`);
-  }
 
   if (ctx.conversationSummary?.key_interests) {
     const interests = safeParseArray(ctx.conversationSummary.key_interests);
@@ -277,9 +520,6 @@ function buildCustomerContext(ctx: HandlerContext): string {
   return parts.length > 0 ? `CUSTOMER CONTEXT:\n${parts.join('\n')}\n` : '';
 }
 
-/**
- * Safely parse a JSON array string, returning empty array on failure.
- */
 function safeParseArray(json: string | null): string[] {
   if (!json) return [];
   try {
@@ -291,15 +531,12 @@ function safeParseArray(json: string | null): string[] {
 }
 
 /**
- * Uses LLM only for natural language generation when products are found.
- * Falls back to deterministic template if LLM fails.
- * v2: Includes conversation history and customer context.
+ * Generate natural product copy using LLM.
  */
 async function generateProductCopy(
   products: ProductWithMetadata[],
   ctx: HandlerContext
 ): Promise<string> {
-  // Format recent conversation (last 4 messages for context)
   const recentHistory = ctx.conversationHistory.slice(-4);
   const historyText = recentHistory.length > 0
     ? recentHistory.map(m =>
@@ -307,57 +544,75 @@ async function generateProductCopy(
       ).join('\n')
     : '';
 
-  // Build customer context from lead + summary
   const customerContext = buildCustomerContext(ctx);
 
-  const llmResponse = await callLLMForCopy(
-    [
-      {
-        role: 'system',
-        content: buildSystemPrompt(ctx)
-      },
-      {
-        role: 'user',
-        content: `${customerContext}
+  const userContent = `${customerContext}
 ${historyText ? `RECENT CONVERSATION:\n${historyText}\n\n` : ''}CURRENT MESSAGE: "${ctx.messageText}"
 
-PRODUCTS:
+PRODUCTS TO RECOMMEND:
 ${JSON.stringify(products.map(p => ({
   name: p.name,
   price: p.price,
-  description: p.description?.substring(0, 100),
+  description: p.description?.substring(0, 80),
   category: p.category
-})))}`
-      }
-    ],
+})), null, 2)}`;
+
+  const llmResponse = await callLLMForCopy(
+    buildSystemPrompt(ctx),
+    userContent,
     ctx.openaiApiKey
   );
 
-  // Fallback if LLM fails or returns empty
-  if (llmResponse) {
-    return llmResponse;
-  }
-
-  console.log('📋 Using: FALLBACK TEMPLATE (LLM failed)');
-  return buildProductFallback(products);
+  return llmResponse ?? buildProductFallback(products);
 }
 
 /**
- * Deterministic fallback if LLM call fails or times out
+ * Generate comparison copy for two products.
+ */
+async function generateComparisonCopy(
+  products: ProductWithMetadata[],
+  ctx: HandlerContext
+): Promise<string> {
+  const [p1, p2] = products;
+
+  const userContent = `Customer wants to compare products. Give a brief, helpful comparison.
+
+PRODUCT 1: ${p1.name} - $${p1.price}
+${p1.description || 'No description'}
+
+PRODUCT 2: ${p2.name} - $${p2.price}
+${p2.description || 'No description'}
+
+Keep it short and end with a question to help them decide.`;
+
+  const llmResponse = await callLLMForCopy(
+    buildSystemPrompt(ctx),
+    userContent,
+    ctx.openaiApiKey
+  );
+
+  if (llmResponse) return llmResponse;
+
+  // Fallback
+  return `The ${p1.name} is $${p1.price} and the ${p2.name} is $${p2.price}.\n\nBoth are great choices! Which vibe are you going for?`;
+}
+
+/**
+ * Deterministic fallback if LLM fails.
  */
 function buildProductFallback(products: ProductWithMetadata[]): string {
-  const list = products
-    .map(p => `• ${p.name} - $${p.price}`)
+  const top3 = products.slice(0, 3);
+  const list = top3
+    .map(p => `${p.name} - $${p.price}`)
     .join('\n');
 
   return `Here's what I found:\n\n${list}\n\nWant details on any of these?`;
 }
 
 // ============================================================================
-// LLM Wrapper with Timeout
+// LLM Wrapper
 // ============================================================================
 
-// Response shape from OpenAI Responses API
 interface ResponsesAPIResponse {
   output: Array<{
     type: string;
@@ -369,17 +624,16 @@ interface ResponsesAPIResponse {
 }
 
 /**
- * Central wrapper for all LLM calls.
- * - 20 second timeout (leaves 10s buffer for Worker)
- * - Returns null on failure (triggers deterministic fallback)
- * - Uses gpt-5-mini (more reliable than nano)
+ * Central wrapper for all LLM calls with timeout and fallback.
+ * Uses OpenAI Responses API format with instructions parameter.
  */
 async function callLLMForCopy(
-  input: Array<{ role: string; content: string }>,
+  instructions: string,
+  userContent: string,
   apiKey: string
 ): Promise<string | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000); // 20s timeout
+  const timeout = setTimeout(() => controller.abort(), 20_000);
   const startTime = Date.now();
 
   try {
@@ -393,11 +647,12 @@ async function callLLMForCopy(
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'gpt-5-mini', // NOT nano - more reliable for this use case
-        input,
-        max_output_tokens: 256 // Small, bounded - enough for WhatsApp messages
-        // NO reasoning config
-        // NO tools - pure copywriting
+        model: 'gpt-5-mini',
+        instructions,
+        input: userContent,
+        // GPT-5-mini is a reasoning model - needs higher token limit
+        // for internal reasoning + actual output
+        max_output_tokens: 2048
       })
     });
 
@@ -408,33 +663,29 @@ async function callLLMForCopy(
     }
 
     const json = await res.json() as ResponsesAPIResponse;
+    const duration = Date.now() - startTime;
+    console.log(`⏱️ LLM call completed in ${duration}ms`);
 
-    // Extract text from Responses API format: output[].content[].text
     const messageItem = json.output?.find(item => item.type === 'message');
     const textContent = messageItem?.content?.find(c => c.type === 'output_text');
     const text = textContent?.text?.trim();
 
-    const duration = Date.now() - startTime;
-    console.log(`⏱️ LLM call completed in ${duration}ms`);
-
     if (text && text.length > 0) {
-      console.log('✅ LLM response received:', text.substring(0, 100) + '...');
+      console.log('✅ LLM response received:', text.substring(0, 80) + '...');
       return text;
     }
 
-    console.warn('⚠️ LLM returned empty response, output:', JSON.stringify(json.output?.map(o => o.type)));
+    console.warn('⚠️ LLM returned empty response');
     return null;
 
   } catch (err) {
     const duration = Date.now() - startTime;
-
     if (err instanceof Error && err.name === 'AbortError') {
       console.error(`⏱️ LLM call timed out after ${duration}ms`);
     } else {
       console.error(`❌ LLM call failed after ${duration}ms:`, err);
     }
-
-    return null; // Fallback to template
+    return null;
   } finally {
     clearTimeout(timeout);
   }

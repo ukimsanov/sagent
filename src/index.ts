@@ -23,8 +23,7 @@ import {
   simulateTypingDelay,
   splitMessage
 } from './whatsapp/messages';
-import { runAgent } from './ai/agent';
-import { handleIncomingMessage as handleCodeFirst } from './ai/handler';
+import { handleIncomingMessage as handleMessage } from './ai/handler';
 import { buildIncrementalSummaryPrompt } from './ai/prompts';
 import { transcribeAudioMessage } from './ai/transcription';
 import * as db from './db/queries';
@@ -32,7 +31,6 @@ import {
   getConversation,
   addMessage,
   formatMessagesForLLM,
-  updateLastResponseId,
   wouldOverflow,
   type Message
 } from './utils/kv';
@@ -48,7 +46,6 @@ interface Env {
 
   // Environment variables
   WHATSAPP_VERIFY_TOKEN: string;
-  USE_CODE_FIRST_AGENT?: string; // Feature flag for code-first agent (set to "true" to enable)
 
   // Secrets (set via wrangler secret put)
   OPENAI_API_KEY: string;
@@ -362,90 +359,28 @@ async function processMessage(
     { role: 'user', content: message.text }
   );
 
-  // Check feature flag for code-first agent
-  const useCodeFirst = env.USE_CODE_FIRST_AGENT === 'true';
-
-  let agentResponse: {
-    message: string;
-    toolsCalled?: string[];
-    leadScoreChange?: number;
-    flaggedForHuman: boolean;
-    responseId?: string;
-  };
-
-  if (useCodeFirst) {
-    // NEW: Code-first handler (single LLM call, no tools)
-    console.log('🚀 Using code-first agent');
-    const codeFirstResponse = await handleCodeFirst({
-      db: env.DB,
-      businessId: business.id,
-      business,
-      lead,
-      messageText: message.text,
-      openaiApiKey: env.OPENAI_API_KEY,
-      // v2: Pass conversation context for "feels like a person" responses
-      conversationHistory: formatMessagesForLLM(conversation),
-      conversationSummary
-    });
-    agentResponse = {
-      message: codeFirstResponse.message,
-      flaggedForHuman: codeFirstResponse.flaggedForHuman,
-      toolsCalled: [], // No tools in code-first
-      leadScoreChange: 0
-    };
-  } else {
-    // OLD: Tool-calling agent
-    console.log('🔧 Using tool-calling agent');
-    agentResponse = await runAgent(
-      env.OPENAI_API_KEY,
-      env.DB,
-      {
-        business,
-        lead,
-        conversationSummary,
-        conversationHistory: formatMessagesForLLM(conversation)
-      },
-      message.text,
-      {
-        // Use previous response ID for conversation chaining (reduces tokens)
-        previousResponseId: conversation.lastResponseId,
-        // Use business ID for prompt cache key (better cache hits per business)
-        promptCacheKey: business.id,
-        // WhatsApp config for sending images via send_product_image tool
-        whatsappConfig: {
-          phoneNumberId: business.whatsapp_phone_id,
-          accessToken: env.WHATSAPP_ACCESS_TOKEN,
-          recipientNumber: message.from
-        }
-      }
-    );
-  }
-
-  console.log('Agent response:', {
-    messageLength: agentResponse.message.length,
-    toolsCalled: agentResponse.toolsCalled,
-    leadScoreChange: agentResponse.leadScoreChange,
-    flaggedForHuman: agentResponse.flaggedForHuman,
-    responseId: agentResponse.responseId,
-    mode: useCodeFirst ? 'code-first' : 'tool-calling'
+  // Process message with code-first handler
+  const response = await handleMessage({
+    db: env.DB,
+    businessId: business.id,
+    business,
+    lead,
+    messageText: message.text,
+    openaiApiKey: env.OPENAI_API_KEY,
+    conversationHistory: formatMessagesForLLM(conversation),
+    conversationSummary
   });
 
-  // Store the response ID for future conversation chaining (only for tool-calling agent)
-  if (agentResponse.responseId) {
-    await updateLastResponseId(
-      env.CONVERSATIONS,
-      business.id,
-      message.from,
-      lead.id,
-      agentResponse.responseId
-    );
-  }
+  console.log('Agent response:', {
+    messageLength: response.message.length,
+    flaggedForHuman: response.flaggedForHuman
+  });
 
   // Add a small delay to seem more human
-  await simulateTypingDelay(agentResponse.message.length);
+  await simulateTypingDelay(response.message.length);
 
   // Split long messages if needed
-  const messageParts = splitMessage(agentResponse.message);
+  const messageParts = splitMessage(response.message);
 
   // Send response(s)
   for (const part of messageParts) {
@@ -468,7 +403,7 @@ async function processMessage(
     business.id,
     message.from,
     lead.id,
-    { role: 'assistant', content: agentResponse.message }
+    { role: 'assistant', content: response.message }
   );
 }
 
