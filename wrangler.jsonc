@@ -10,7 +10,7 @@
 
 	// Environment variables (non-sensitive)
 	"vars": {
-		
+		"USE_CODE_FIRST_AGENT": "true"
 	},
 
 	// D1 Database for business data, products, leads
