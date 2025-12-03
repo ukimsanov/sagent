@@ -630,3 +630,319 @@ export async function createPromoCode(
     created_at: Math.floor(Date.now() / 1000)
   };
 }
+
+// ============================================================================
+// Message Events (Analytics) - Phase 3
+// ============================================================================
+
+export type ResponseAction =
+  | 'show_products'
+  | 'ask_clarification'
+  | 'answer_question'
+  | 'empathize'
+  | 'greet'
+  | 'thank'
+  | 'handoff';
+
+export interface MessageEvent {
+  id: string;
+  business_id: string;
+  lead_id: string;
+  timestamp: number;
+  action: ResponseAction;
+  intent_type: string | null;
+  user_message: string | null;
+  agent_response: string | null;
+  search_query: string | null;
+  products_shown: string | null; // JSON array of product IDs
+  flagged_for_human: number;
+  clarification_count: number;
+  processing_time_ms: number | null;
+}
+
+export interface MessageEventInput {
+  id: string;
+  business_id: string;
+  lead_id: string;
+  timestamp: number;
+  action: ResponseAction;
+  intent_type: string | null;
+  user_message: string | null;
+  agent_response: string | null;
+  search_query: string | null;
+  products_shown: string[] | null;
+  flagged_for_human: number;
+  clarification_count: number;
+  processing_time_ms: number | null;
+}
+
+/**
+ * Insert a new message event for analytics tracking
+ */
+export async function insertMessageEvent(
+  db: D1Database,
+  event: MessageEventInput
+): Promise<void> {
+  await db
+    .prepare(`
+      INSERT INTO message_events (
+        id, business_id, lead_id, timestamp, action, intent_type,
+        user_message, agent_response, search_query, products_shown,
+        flagged_for_human, clarification_count, processing_time_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .bind(
+      event.id,
+      event.business_id,
+      event.lead_id,
+      event.timestamp,
+      event.action,
+      event.intent_type,
+      event.user_message,
+      event.agent_response,
+      event.search_query,
+      event.products_shown ? JSON.stringify(event.products_shown) : null,
+      event.flagged_for_human,
+      event.clarification_count,
+      event.processing_time_ms
+    )
+    .run();
+}
+
+/**
+ * Get message events for a business (paginated, for dashboard)
+ */
+export async function getMessageEventsByBusiness(
+  db: D1Database,
+  businessId: string,
+  options: {
+    limit?: number;
+    offset?: number;
+    action?: ResponseAction;
+    startTime?: number;
+    endTime?: number;
+  } = {}
+): Promise<{ events: MessageEvent[]; total: number }> {
+  const { limit = 50, offset = 0, action, startTime, endTime } = options;
+
+  let whereClause = 'WHERE business_id = ?';
+  const params: (string | number)[] = [businessId];
+
+  if (action) {
+    whereClause += ' AND action = ?';
+    params.push(action);
+  }
+  if (startTime) {
+    whereClause += ' AND timestamp >= ?';
+    params.push(startTime);
+  }
+  if (endTime) {
+    whereClause += ' AND timestamp <= ?';
+    params.push(endTime);
+  }
+
+  // Get total count
+  const countResult = await db
+    .prepare(`SELECT COUNT(*) as count FROM message_events ${whereClause}`)
+    .bind(...params)
+    .first<{ count: number }>();
+
+  // Get paginated results
+  const result = await db
+    .prepare(`
+      SELECT * FROM message_events
+      ${whereClause}
+      ORDER BY timestamp DESC
+      LIMIT ? OFFSET ?
+    `)
+    .bind(...params, limit, offset)
+    .all<MessageEvent>();
+
+  return {
+    events: result.results || [],
+    total: countResult?.count || 0
+  };
+}
+
+/**
+ * Get all events for a specific lead (for conversation detail)
+ */
+export async function getConversationEvents(
+  db: D1Database,
+  leadId: string,
+  limit: number = 100
+): Promise<MessageEvent[]> {
+  const result = await db
+    .prepare(`
+      SELECT * FROM message_events
+      WHERE lead_id = ?
+      ORDER BY timestamp ASC
+      LIMIT ?
+    `)
+    .bind(leadId, limit)
+    .all<MessageEvent>();
+
+  return result.results || [];
+}
+
+/**
+ * Get analytics summary for dashboard
+ */
+export async function getAnalyticsSummary(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+): Promise<{
+  totalMessages: number;
+  actionBreakdown: Record<ResponseAction, number>;
+  avgProcessingTime: number;
+  handoffRate: number;
+  uniqueLeads: number;
+}> {
+  // Total messages
+  const totalResult = await db
+    .prepare(`
+      SELECT COUNT(*) as count FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+    `)
+    .bind(businessId, startTime, endTime)
+    .first<{ count: number }>();
+
+  // Action breakdown
+  const actionResult = await db
+    .prepare(`
+      SELECT action, COUNT(*) as count FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+      GROUP BY action
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<{ action: ResponseAction; count: number }>();
+
+  // Average processing time
+  const avgTimeResult = await db
+    .prepare(`
+      SELECT AVG(processing_time_ms) as avg_time FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND processing_time_ms IS NOT NULL
+    `)
+    .bind(businessId, startTime, endTime)
+    .first<{ avg_time: number | null }>();
+
+  // Handoff count
+  const handoffResult = await db
+    .prepare(`
+      SELECT COUNT(*) as count FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND (action = 'handoff' OR flagged_for_human = 1)
+    `)
+    .bind(businessId, startTime, endTime)
+    .first<{ count: number }>();
+
+  // Unique leads
+  const leadsResult = await db
+    .prepare(`
+      SELECT COUNT(DISTINCT lead_id) as count FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+    `)
+    .bind(businessId, startTime, endTime)
+    .first<{ count: number }>();
+
+  const totalMessages = totalResult?.count || 0;
+  const actionBreakdown: Record<ResponseAction, number> = {
+    show_products: 0,
+    ask_clarification: 0,
+    answer_question: 0,
+    empathize: 0,
+    greet: 0,
+    thank: 0,
+    handoff: 0
+  };
+
+  for (const row of actionResult.results || []) {
+    actionBreakdown[row.action] = row.count;
+  }
+
+  return {
+    totalMessages,
+    actionBreakdown,
+    avgProcessingTime: avgTimeResult?.avg_time || 0,
+    handoffRate: totalMessages > 0
+      ? (handoffResult?.count || 0) / totalMessages
+      : 0,
+    uniqueLeads: leadsResult?.count || 0
+  };
+}
+
+/**
+ * Get leads for a business (for dashboard leads list)
+ */
+export async function getLeadsByBusiness(
+  db: D1Database,
+  businessId: string,
+  options: {
+    limit?: number;
+    offset?: number;
+    status?: Lead['status'];
+    sortBy?: 'last_contact' | 'score' | 'first_contact';
+    sortOrder?: 'ASC' | 'DESC';
+  } = {}
+): Promise<{ leads: Lead[]; total: number }> {
+  const {
+    limit = 50,
+    offset = 0,
+    status,
+    sortBy = 'last_contact',
+    sortOrder = 'DESC'
+  } = options;
+
+  let whereClause = 'WHERE business_id = ?';
+  const params: (string | number)[] = [businessId];
+
+  if (status) {
+    whereClause += ' AND status = ?';
+    params.push(status);
+  }
+
+  // Get total count
+  const countResult = await db
+    .prepare(`SELECT COUNT(*) as count FROM leads ${whereClause}`)
+    .bind(...params)
+    .first<{ count: number }>();
+
+  // Get paginated results
+  const result = await db
+    .prepare(`
+      SELECT * FROM leads
+      ${whereClause}
+      ORDER BY ${sortBy} ${sortOrder}
+      LIMIT ? OFFSET ?
+    `)
+    .bind(...params, limit, offset)
+    .all<Lead>();
+
+  return {
+    leads: result.results || [],
+    total: countResult?.count || 0
+  };
+}
+
+/**
+ * Get lead by ID with conversation summary
+ */
+export async function getLeadWithSummary(
+  db: D1Database,
+  leadId: string
+): Promise<{ lead: Lead; summary: ConversationSummary | null } | null> {
+  const lead = await db
+    .prepare('SELECT * FROM leads WHERE id = ?')
+    .bind(leadId)
+    .first<Lead>();
+
+  if (!lead) return null;
+
+  const summary = await getConversationSummary(db, leadId);
+
+  return { lead, summary };
+}

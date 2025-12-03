@@ -40,10 +40,15 @@ export interface HandlerContext {
 }
 
 /** Structured response with action tracking for analytics */
-interface HandlerResponse {
+export interface HandlerResponse {
   message: string;
   action: ResponseAction;
   flaggedForHuman: boolean;
+  // Analytics fields (optional - for Phase 3)
+  intentType?: string;
+  searchQuery?: string;
+  productsShown?: string[];
+  clarificationCount?: number;
 }
 
 type ResponseAction =
@@ -85,20 +90,27 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   const intent = classifyIntent(ctx.messageText, convContext);
   console.log('🎯 Intent classified:', intent.type);
 
+  // Track clarification count for analytics
+  const clarificationCount = convContext.recentClarifications;
+
   // Route to appropriate handler
   switch (intent.type) {
     case 'greeting':
       return {
         message: handleGreeting(ctx),
         action: 'greet',
-        flaggedForHuman: false
+        flaggedForHuman: false,
+        intentType: 'greeting',
+        clarificationCount
       };
 
     case 'thanks':
       return {
         message: handleThanks(ctx),
         action: 'thank',
-        flaggedForHuman: false
+        flaggedForHuman: false,
+        intentType: 'thanks',
+        clarificationCount
       };
 
     case 'handoff_request':
@@ -106,29 +118,31 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
       return {
         message: handleHandoff(ctx),
         action: 'handoff',
-        flaggedForHuman: true
+        flaggedForHuman: true,
+        intentType: 'handoff_request',
+        clarificationCount
       };
 
     case 'complaint':
-      return await handleComplaint(intent, ctx);
+      return await handleComplaint(intent, ctx, clarificationCount);
 
     case 'order_status':
-      return handleOrderStatus(ctx);
+      return handleOrderStatus(ctx, clarificationCount);
 
     case 'sizing_help':
-      return await handleSizingHelp(intent, ctx);
+      return await handleSizingHelp(intent, ctx, clarificationCount);
 
     case 'pricing_question':
-      return await handlePricingQuestion(intent, ctx);
+      return await handlePricingQuestion(intent, ctx, clarificationCount);
 
     case 'comparison':
-      return await handleComparison(intent, ctx);
+      return await handleComparison(intent, ctx, clarificationCount);
 
     case 'recommendation':
-      return await handleRecommendation(intent, ctx);
+      return await handleRecommendation(intent, ctx, clarificationCount);
 
     case 'product_search':
-      return await handleProductSearch(intent, ctx);
+      return await handleProductSearch(intent, ctx, clarificationCount);
   }
 }
 
@@ -194,12 +208,14 @@ function handleAutoHandoff(ctx: HandlerContext): string {
   return `${base} ${action}`;
 }
 
-function handleOrderStatus(ctx: HandlerContext): HandlerResponse {
+function handleOrderStatus(ctx: HandlerContext, clarificationCount: number): HandlerResponse {
   // We don't have order system access - flag for human
   return {
     message: "I'd love to help with your order! Let me connect you with someone who can look that up for you.",
     action: 'handoff',
-    flaggedForHuman: true
+    flaggedForHuman: true,
+    intentType: 'order_status',
+    clarificationCount
   };
 }
 
@@ -209,7 +225,8 @@ function handleOrderStatus(ctx: HandlerContext): HandlerResponse {
 
 async function handleComplaint(
   intent: { type: 'complaint'; severity: 'low' | 'medium' | 'high' },
-  ctx: HandlerContext
+  ctx: HandlerContext,
+  clarificationCount: number
 ): Promise<HandlerResponse> {
   const name = ctx.lead.name ? `${ctx.lead.name}, ` : '';
 
@@ -220,7 +237,9 @@ async function handleComplaint(
     return {
       message: `${name}I'm really sorry you're having this experience. This is important and I want to make sure it's handled properly. Let me get someone from our team to help you right away.`,
       action: 'empathize',
-      flaggedForHuman: true
+      flaggedForHuman: true,
+      intentType: 'complaint',
+      clarificationCount
     };
   }
 
@@ -228,7 +247,9 @@ async function handleComplaint(
     return {
       message: `${name}I'm sorry to hear that. I understand this is frustrating. Would you like me to connect you with someone who can help resolve this?`,
       action: 'empathize',
-      flaggedForHuman: true
+      flaggedForHuman: true,
+      intentType: 'complaint',
+      clarificationCount
     };
   }
 
@@ -236,7 +257,9 @@ async function handleComplaint(
   return {
     message: `${name}I'm sorry for any confusion. Let me try to help - can you tell me a bit more about what's going on?`,
     action: 'empathize',
-    flaggedForHuman: true
+    flaggedForHuman: true,
+    intentType: 'complaint',
+    clarificationCount
   };
 }
 
@@ -246,7 +269,8 @@ async function handleComplaint(
 
 async function handleSizingHelp(
   intent: { type: 'sizing_help'; query: string },
-  ctx: HandlerContext
+  ctx: HandlerContext,
+  clarificationCount: number
 ): Promise<HandlerResponse> {
   // Search for products to get sizing info
   const products = await searchProducts(ctx.db, ctx.businessId, intent.query);
@@ -255,7 +279,10 @@ async function handleSizingHelp(
     return {
       message: "I can help with sizing! What item are you looking at?",
       action: 'ask_clarification',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'sizing_help',
+      searchQuery: intent.query,
+      clarificationCount
     };
   }
 
@@ -268,7 +295,11 @@ async function handleSizingHelp(
     return {
       message: `The ${product.name} comes in: ${sizes.join(', ')}.\n\nMost customers find it runs true to size. What size do you usually wear?`,
       action: 'answer_question',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'sizing_help',
+      searchQuery: intent.query,
+      productsShown: [product.id],
+      clarificationCount
     };
   }
 
@@ -276,7 +307,11 @@ async function handleSizingHelp(
   return {
     message: `For the ${product.name}, I'd recommend going with your usual size. If you're between sizes or prefer a looser fit, size up. What size are you thinking?`,
     action: 'answer_question',
-    flaggedForHuman: false
+    flaggedForHuman: false,
+    intentType: 'sizing_help',
+    searchQuery: intent.query,
+    productsShown: [product.id],
+    clarificationCount
   };
 }
 
@@ -286,7 +321,8 @@ async function handleSizingHelp(
 
 async function handlePricingQuestion(
   intent: { type: 'pricing_question'; query: string },
-  ctx: HandlerContext
+  ctx: HandlerContext,
+  clarificationCount: number
 ): Promise<HandlerResponse> {
   const products = await searchProducts(ctx.db, ctx.businessId, intent.query);
 
@@ -295,7 +331,10 @@ async function handlePricingQuestion(
     return {
       message: `What kind of items are you looking to price check? We have ${categories.join(', ')}.`,
       action: 'ask_clarification',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'pricing_question',
+      searchQuery: intent.query,
+      clarificationCount
     };
   }
 
@@ -304,7 +343,11 @@ async function handlePricingQuestion(
     return {
       message: `The ${p.name} is $${p.price}. Want to know more about it?`,
       action: 'answer_question',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'pricing_question',
+      searchQuery: intent.query,
+      productsShown: [p.id],
+      clarificationCount
     };
   }
 
@@ -317,14 +360,22 @@ async function handlePricingQuestion(
     return {
       message: `Those are $${min} each. Want me to show you the options?`,
       action: 'answer_question',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'pricing_question',
+      searchQuery: intent.query,
+      productsShown: products.map(p => p.id),
+      clarificationCount
     };
   }
 
   return {
     message: `Prices range from $${min} to $${max}. Want me to show you what's available?`,
     action: 'answer_question',
-    flaggedForHuman: false
+    flaggedForHuman: false,
+    intentType: 'pricing_question',
+    searchQuery: intent.query,
+    productsShown: products.map(p => p.id),
+    clarificationCount
   };
 }
 
@@ -334,7 +385,8 @@ async function handlePricingQuestion(
 
 async function handleComparison(
   intent: { type: 'comparison'; items: string[] },
-  ctx: HandlerContext
+  ctx: HandlerContext,
+  clarificationCount: number
 ): Promise<HandlerResponse> {
   // Search for both items
   const query = intent.items.join(' ');
@@ -344,16 +396,24 @@ async function handleComparison(
     return {
       message: "I can help you compare! Which two items are you looking at?",
       action: 'ask_clarification',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'comparison',
+      searchQuery: query,
+      clarificationCount
     };
   }
 
   // Use LLM to generate a natural comparison
-  const message = await generateComparisonCopy(products.slice(0, 2), ctx);
+  const comparedProducts = products.slice(0, 2);
+  const message = await generateComparisonCopy(comparedProducts, ctx);
   return {
     message,
     action: 'answer_question',
-    flaggedForHuman: false
+    flaggedForHuman: false,
+    intentType: 'comparison',
+    searchQuery: query,
+    productsShown: comparedProducts.map(p => p.id),
+    clarificationCount
   };
 }
 
@@ -363,7 +423,8 @@ async function handleComparison(
 
 async function handleRecommendation(
   intent: { type: 'recommendation'; context: string },
-  ctx: HandlerContext
+  ctx: HandlerContext,
+  clarificationCount: number
 ): Promise<HandlerResponse> {
   // Use context to guide search
   let searchQuery = intent.context;
@@ -391,19 +452,40 @@ async function handleRecommendation(
     // Try a broader search
     const allProducts = await searchProducts(ctx.db, ctx.businessId, 'popular');
     if (allProducts.length > 0) {
-      const message = await generateProductCopy(allProducts.slice(0, 4), ctx);
-      return { message, action: 'show_products', flaggedForHuman: false };
+      const shownProducts = allProducts.slice(0, 4);
+      const message = await generateProductCopy(shownProducts, ctx);
+      return {
+        message,
+        action: 'show_products',
+        flaggedForHuman: false,
+        intentType: 'recommendation',
+        searchQuery,
+        productsShown: shownProducts.map(p => p.id),
+        clarificationCount
+      };
     }
 
     return {
       message: "I'd love to help you find something! What style are you into - casual, dressy, or somewhere in between?",
       action: 'ask_clarification',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'recommendation',
+      searchQuery,
+      clarificationCount
     };
   }
 
-  const message = await generateProductCopy(products.slice(0, 4), ctx);
-  return { message, action: 'show_products', flaggedForHuman: false };
+  const shownProducts = products.slice(0, 4);
+  const message = await generateProductCopy(shownProducts, ctx);
+  return {
+    message,
+    action: 'show_products',
+    flaggedForHuman: false,
+    intentType: 'recommendation',
+    searchQuery,
+    productsShown: shownProducts.map(p => p.id),
+    clarificationCount
+  };
 }
 
 // ============================================================================
@@ -412,7 +494,8 @@ async function handleRecommendation(
 
 async function handleProductSearch(
   intent: { type: 'product_search'; query: string },
-  ctx: HandlerContext
+  ctx: HandlerContext,
+  clarificationCount: number
 ): Promise<HandlerResponse> {
   console.log('🔍 Searching for:', intent.query);
 
@@ -423,7 +506,10 @@ async function handleProductSearch(
     return {
       message: clarifyingQuestion,
       action: 'ask_clarification',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'product_search',
+      searchQuery: intent.query,
+      clarificationCount
     };
   }
 
@@ -439,7 +525,10 @@ async function handleProductSearch(
     return {
       message: buildNoProductsTemplate(intent.query, categories),
       action: 'answer_question',
-      flaggedForHuman: false
+      flaggedForHuman: false,
+      intentType: 'product_search',
+      searchQuery: intent.query,
+      clarificationCount
     };
   }
 
@@ -450,7 +539,11 @@ async function handleProductSearch(
   return {
     message,
     action: 'show_products',
-    flaggedForHuman: false
+    flaggedForHuman: false,
+    intentType: 'product_search',
+    searchQuery: intent.query,
+    productsShown: trimmed.map(p => p.id),
+    clarificationCount
   };
 }
 

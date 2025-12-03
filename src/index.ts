@@ -359,6 +359,9 @@ async function processMessage(
     { role: 'user', content: message.text }
   );
 
+  // Track processing time for analytics
+  const startTime = Date.now();
+
   // Process message with code-first handler
   const response = await handleMessage({
     db: env.DB,
@@ -371,10 +374,36 @@ async function processMessage(
     conversationSummary
   });
 
+  const processingTime = Date.now() - startTime;
+
   console.log('Agent response:', {
     messageLength: response.message.length,
-    flaggedForHuman: response.flaggedForHuman
+    action: response.action,
+    flaggedForHuman: response.flaggedForHuman,
+    processingTimeMs: processingTime
   });
+
+  // Log event for analytics (Phase 3)
+  try {
+    await db.insertMessageEvent(env.DB, {
+      id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+      business_id: business.id,
+      lead_id: lead.id,
+      timestamp: Date.now(),
+      action: response.action,
+      intent_type: response.intentType || null,
+      user_message: message.text,
+      agent_response: response.message,
+      search_query: response.searchQuery || null,
+      products_shown: response.productsShown || null,
+      flagged_for_human: response.flaggedForHuman ? 1 : 0,
+      clarification_count: response.clarificationCount || 0,
+      processing_time_ms: processingTime
+    });
+  } catch (error) {
+    // Don't fail the message handling if analytics logging fails
+    console.error('Failed to log message event:', error);
+  }
 
   // Add a small delay to seem more human
   await simulateTypingDelay(response.message.length);

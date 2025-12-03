@@ -134,3 +134,40 @@ CREATE TABLE IF NOT EXISTS promo_codes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_promos_unused ON promo_codes(business_id, used_by_lead_id);
+
+-- Message events for analytics (Phase 3)
+CREATE TABLE IF NOT EXISTS message_events (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+
+  -- Action tracking (from HandlerResponse)
+  action TEXT NOT NULL,  -- show_products, ask_clarification, answer_question, empathize, greet, thank, handoff
+  intent_type TEXT,      -- greeting, thanks, product_search, complaint, etc.
+
+  -- Message details
+  user_message TEXT,
+  agent_response TEXT,
+
+  -- Search context (when applicable)
+  search_query TEXT,
+  products_shown TEXT,   -- JSON array of product IDs
+
+  -- Flags
+  flagged_for_human INTEGER DEFAULT 0,
+  clarification_count INTEGER DEFAULT 0,
+
+  -- Performance
+  processing_time_ms INTEGER,
+
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+
+-- Indexes for dashboard queries
+CREATE INDEX IF NOT EXISTS idx_message_events_business ON message_events(business_id);
+CREATE INDEX IF NOT EXISTS idx_message_events_timestamp ON message_events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_message_events_action ON message_events(action);
+CREATE INDEX IF NOT EXISTS idx_message_events_lead ON message_events(lead_id);
+CREATE INDEX IF NOT EXISTS idx_message_events_business_timestamp ON message_events(business_id, timestamp DESC);
