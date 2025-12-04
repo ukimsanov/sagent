@@ -1,18 +1,25 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDB, getBusinessById } from "@/lib/db";
+import { getUserBusinessId } from "@/lib/auth-utils";
 import { SettingsForm } from "./settings-form";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { MessageSquare, Users, Clock, Settings } from "lucide-react";
+import { withAuth } from "@workos-inc/authkit-nextjs";
+import { redirect } from "next/navigation";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
 
-// Default business ID for demo
-const BUSINESS_ID = "demo-store-001";
-
 export default async function SettingsPage() {
+  // Check authentication
+  const { user } = await withAuth();
+  if (!user) {
+    redirect("/auth/login");
+  }
+
   const db = await getDB();
-  const business = await getBusinessById(db, BUSINESS_ID);
+  const businessId = await getUserBusinessId(db, user.id);
+  const business = await getBusinessById(db, businessId);
 
   if (!business) {
     return (

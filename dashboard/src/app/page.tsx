@@ -9,19 +9,17 @@ import {
   getTopSearchQueries,
   ResponseAction
 } from "@/lib/db";
+import { getUserBusinessId } from "@/lib/auth-utils";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import { AnimatedSection } from "@/components/dashboard/animated-section";
 import { AnimatedProgress } from "@/components/dashboard/animated-progress";
 import { ActivityItem } from "@/components/dashboard/activity-item";
 import { BlurFade } from "@/components/ui/blur-fade";
-import { LandingPage } from "@/components/landing-page";
+import { LandingPage } from "@/components/landing";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
-
-// Default business ID for demo (will be replaced with org-based ID after auth)
-const BUSINESS_ID = "demo-store-001";
 
 function getActionColor(action: string) {
   const colors: Record<string, string> = {
@@ -65,15 +63,18 @@ export default async function DashboardPage() {
 
   const db = await getDB();
 
+  // Get business ID for authenticated user
+  const businessId = await getUserBusinessId(db, user.id);
+
   // Get analytics for the last 24 hours
   const now = Date.now();
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
 
-  const stats = await getAnalyticsSummary(db, BUSINESS_ID, oneDayAgo, now);
-  const recentEvents = await getMessageEvents(db, BUSINESS_ID, { limit: 10 });
-  const intentBreakdown = await getIntentBreakdown(db, BUSINESS_ID, oneDayAgo, now);
-  const leadFunnel = await getLeadFunnelMetrics(db, BUSINESS_ID);
-  const topSearches = await getTopSearchQueries(db, BUSINESS_ID, oneDayAgo, now);
+  const stats = await getAnalyticsSummary(db, businessId, oneDayAgo, now);
+  const recentEvents = await getMessageEvents(db, businessId, { limit: 10 });
+  const intentBreakdown = await getIntentBreakdown(db, businessId, oneDayAgo, now);
+  const leadFunnel = await getLeadFunnelMetrics(db, businessId);
+  const topSearches = await getTopSearchQueries(db, businessId, oneDayAgo, now);
 
   const totalLeads = Object.values(leadFunnel).reduce((a, b) => a + b, 0);
 

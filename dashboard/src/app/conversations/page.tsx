@@ -1,18 +1,18 @@
 import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDB, getMessageEvents } from "@/lib/db";
+import { getUserBusinessId } from "@/lib/auth-utils";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { ConversationsTable } from "@/components/dashboard/conversations-table";
 import { SearchInput } from "@/components/dashboard/search-input";
 import { FilterButtons } from "@/components/dashboard/filter-buttons";
 import { PaginationControls } from "@/components/dashboard/pagination-controls";
 import { Skeleton } from "@/components/ui/skeleton";
+import { withAuth } from "@workos-inc/authkit-nextjs";
+import { redirect } from "next/navigation";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
-
-// Default business ID for demo
-const BUSINESS_ID = "demo-store-001";
 
 const ACTION_OPTIONS = [
   { value: "show_products", label: "Show Products" },
@@ -36,6 +36,12 @@ interface PageProps {
 const ITEMS_PER_PAGE = 15;
 
 export default async function ConversationsPage({ searchParams }: PageProps) {
+  // Check authentication
+  const { user } = await withAuth();
+  if (!user) {
+    redirect("/auth/login");
+  }
+
   const params = await searchParams;
   const search = typeof params.q === "string" ? params.q : undefined;
   const action = typeof params.action === "string" ? params.action : undefined;
@@ -44,7 +50,8 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
   const offset = (page - 1) * ITEMS_PER_PAGE;
 
   const db = await getDB();
-  const { events, total } = await getMessageEvents(db, BUSINESS_ID, {
+  const businessId = await getUserBusinessId(db, user.id);
+  const { events, total } = await getMessageEvents(db, businessId, {
     limit: ITEMS_PER_PAGE,
     offset,
     search,

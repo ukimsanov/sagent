@@ -201,3 +201,18 @@ CREATE TABLE IF NOT EXISTS dead_letter_queue (
 CREATE INDEX IF NOT EXISTS idx_dead_letter_type ON dead_letter_queue(operation_type);
 CREATE INDEX IF NOT EXISTS idx_dead_letter_created ON dead_letter_queue(created_at);
 CREATE INDEX IF NOT EXISTS idx_dead_letter_unresolved ON dead_letter_queue(resolved_at) WHERE resolved_at IS NULL;
+
+-- User to Business mapping for multi-tenancy (WorkOS integration)
+-- Links WorkOS user IDs to business accounts
+CREATE TABLE IF NOT EXISTS user_businesses (
+  id TEXT PRIMARY KEY,
+  workos_user_id TEXT NOT NULL,
+  business_id TEXT NOT NULL,
+  role TEXT DEFAULT 'admin', -- 'admin', 'member', 'viewer'
+  created_at INTEGER DEFAULT (unixepoch() * 1000),
+  UNIQUE(workos_user_id, business_id),
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_businesses_workos ON user_businesses(workos_user_id);
+CREATE INDEX IF NOT EXISTS idx_user_businesses_business ON user_businesses(business_id);

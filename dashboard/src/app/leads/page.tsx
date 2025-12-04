@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Flame, Thermometer, CheckCircle } from "lucide-react";
 import { getDB, getLeads } from "@/lib/db";
+import { getUserBusinessId } from "@/lib/auth-utils";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { LeadsTable } from "@/components/dashboard/leads-table";
@@ -9,12 +10,11 @@ import { SearchInput } from "@/components/dashboard/search-input";
 import { FilterButtons } from "@/components/dashboard/filter-buttons";
 import { PaginationControls } from "@/components/dashboard/pagination-controls";
 import { Skeleton } from "@/components/ui/skeleton";
+import { withAuth } from "@workos-inc/authkit-nextjs";
+import { redirect } from "next/navigation";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
-
-// Default business ID for demo
-const BUSINESS_ID = "demo-store-001";
 
 const STATUS_OPTIONS = [
   { value: "new", label: "New" },
@@ -32,6 +32,12 @@ interface PageProps {
 const ITEMS_PER_PAGE = 15;
 
 export default async function LeadsPage({ searchParams }: PageProps) {
+  // Check authentication
+  const { user } = await withAuth();
+  if (!user) {
+    redirect("/auth/login");
+  }
+
   const params = await searchParams;
   const search = typeof params.q === "string" ? params.q : undefined;
   const status = typeof params.status === "string" ? params.status : undefined;
@@ -39,7 +45,8 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const offset = (page - 1) * ITEMS_PER_PAGE;
 
   const db = await getDB();
-  const { leads, total } = await getLeads(db, BUSINESS_ID, {
+  const businessId = await getUserBusinessId(db, user.id);
+  const { leads, total } = await getLeads(db, businessId, {
     limit: ITEMS_PER_PAGE,
     offset,
     search,

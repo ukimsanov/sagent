@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
@@ -15,7 +16,6 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar";
-import { WhatsappIcon } from "@/components/icons/whatsapp-icon";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -55,12 +55,27 @@ export function AppSidebar({ user }: AppSidebarProps) {
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
         <Link href="/" className="flex items-center gap-2 group">
           <motion.div
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-[#25D366] ring-1 ring-emerald-100 shadow-sm dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 ring-1 ring-emerald-100 shadow-sm dark:bg-emerald-900/30 dark:ring-emerald-800/60"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
-            <WhatsappIcon className="h-4 w-4" />
+            <Image
+              src="/WhatsApp-Brand-Resource-Center/01_Glyph/01_Digital/02_SVG/Green/Digital_Glyph_Green.svg"
+              alt="WhatsApp logo"
+              width={18}
+              height={18}
+              className="block dark:hidden"
+              priority
+            />
+            <Image
+              src="/WhatsApp-Brand-Resource-Center/01_Glyph/01_Digital/02_SVG/White/Digital_Glyph_White.svg"
+              alt="WhatsApp logo"
+              width={18}
+              height={18}
+              className="hidden dark:block"
+              priority
+            />
           </motion.div>
           <div className="flex flex-col">
             <span className="text-sm font-semibold group-hover:text-primary transition-colors">
