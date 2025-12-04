@@ -15,13 +15,18 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar";
+import { WhatsappIcon } from "@/components/icons/whatsapp-icon";
 import {
   LayoutDashboard,
   MessageSquare,
   Users,
   Settings,
-  MessageCircle,
 } from "lucide-react";
+import type { AuthUser } from "@/types/auth";
+
+interface AppSidebarProps {
+  user: AuthUser | null;
+}
 
 const navItems = [
   {
@@ -41,20 +46,21 @@ const navItems = [
   },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname();
+  // user prop is available for future use (e.g., displaying user info in sidebar)
 
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
         <Link href="/" className="flex items-center gap-2 group">
           <motion.div
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-[#25D366] ring-1 ring-emerald-100 shadow-sm dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-800/60"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
-            <MessageCircle className="h-4 w-4 text-primary-foreground" />
+            <WhatsappIcon className="h-4 w-4" />
           </motion.div>
           <div className="flex flex-col">
             <span className="text-sm font-semibold group-hover:text-primary transition-colors">

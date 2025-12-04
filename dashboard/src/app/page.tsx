@@ -14,11 +14,13 @@ import { AnimatedSection } from "@/components/dashboard/animated-section";
 import { AnimatedProgress } from "@/components/dashboard/animated-progress";
 import { ActivityItem } from "@/components/dashboard/activity-item";
 import { BlurFade } from "@/components/ui/blur-fade";
+import { LandingPage } from "@/components/landing-page";
+import { withAuth } from "@workos-inc/authkit-nextjs";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
 
-// Default business ID for demo
+// Default business ID for demo (will be replaced with org-based ID after auth)
 const BUSINESS_ID = "demo-store-001";
 
 function getActionColor(action: string) {
@@ -54,6 +56,13 @@ function maskPhone(phone: string) {
 }
 
 export default async function DashboardPage() {
+  // Check authentication - show landing page if not signed in
+  const { user } = await withAuth();
+
+  if (!user) {
+    return <LandingPage />;
+  }
+
   const db = await getDB();
 
   // Get analytics for the last 24 hours

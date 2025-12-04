@@ -158,13 +158,13 @@ export default async function ConversationDetailPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_300px] gap-4">
+      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 260px" }}>
         {/* Message Thread */}
         <Card>
-          <CardHeader className="py-3 border-b">
-            <CardTitle className="text-base flex items-center gap-2">
+          <CardHeader className="py-1.5 border-b">
+            <CardTitle className="text-sm flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
-              Conversation ({messages.length} messages)
+              Conversation ({messages.length})
             </CardTitle>
           </CardHeader>
             <CardContent className="py-4 space-y-4">
@@ -234,7 +234,7 @@ export default async function ConversationDetailPage({
         <div className="space-y-4">
           {/* Lead Info */}
           <Card>
-            <CardHeader className="py-3">
+            <CardHeader className="py-1.5">
               <CardTitle className="text-sm flex items-center gap-2">
                 <User className="h-4 w-4" />
                 Lead Info
@@ -243,17 +243,23 @@ export default async function ConversationDetailPage({
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Status</span>
-                {getStatusBadge(lead.status)}
+                <div className="w-[70px] flex justify-center">
+                  {getStatusBadge(lead.status)}
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Score</span>
-                <span className={`font-bold ${getScoreColor(lead.score)}`}>
-                  {lead.score}
-                </span>
+                <div className="w-[70px] flex justify-center">
+                  <span className={`font-bold ${getScoreColor(lead.score)}`}>
+                    {lead.score}
+                  </span>
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Messages</span>
-                <span className="text-sm">{lead.message_count}</span>
+                <div className="w-[70px] flex justify-center">
+                  <span className="text-sm">{lead.message_count}</span>
+                </div>
               </div>
               {interests.length > 0 && (
                 <>
@@ -284,13 +290,13 @@ export default async function ConversationDetailPage({
 
           {/* Event Timeline */}
           <Card>
-            <CardHeader className="py-3">
+            <CardHeader className="py-1.5">
               <CardTitle className="text-sm flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
                 Actions Timeline
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex justify-center">
               <div className="space-y-3">
                 {events.slice(0, 10).map((event, index) => {
                   const Icon = actionIcons[event.action] || MessageSquare;
