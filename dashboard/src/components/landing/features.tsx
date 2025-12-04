@@ -3,7 +3,6 @@
 import { BlurFade } from "@/components/ui/blur-fade";
 import { MagicCard } from "@/components/ui/magic-card";
 import {
-	MessageSquare,
 	Users,
 	Zap,
 	BarChart3,

@@ -25,6 +25,14 @@
 			"database_name": "whatsapp-ai-agent-db",
 			"database_id": "7f289e64-10ef-47cb-b27e-376d81ad2366"
 		}
+	],
+	// Service binding for self-reference (required for revalidation)
+	// See: https://opennext.js.org/cloudflare/get-started
+	"services": [
+		{
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "whatsapp-agent-dashboard"
+		}
 	]
 	/**
 	 * Smart Placement

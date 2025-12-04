@@ -55,11 +55,12 @@ export function Navbar({ className }: NavbarProps) {
 					</Link>
 
 					{/* Navigation Links */}
-					<div className="hidden md:flex items-center gap-8">
+					<div className="hidden md:flex items-center gap-6">
 						<NavLink href="#channels" onClick={scrollToSection}>Channels</NavLink>
 						<NavLink href="#features" onClick={scrollToSection}>Features</NavLink>
 						<NavLink href="#how-it-works" onClick={scrollToSection}>How it works</NavLink>
 						<NavLink href="#pricing" onClick={scrollToSection}>Pricing</NavLink>
+						<NavLink href="#faq" onClick={scrollToSection}>FAQ</NavLink>
 					</div>
 
 					{/* CTA */}

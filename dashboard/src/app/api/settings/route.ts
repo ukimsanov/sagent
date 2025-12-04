@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, updateBusinessConfig } from "@/lib/db";
 
-export const runtime = "edge";
+// Note: OpenNext for Cloudflare uses Node.js runtime, not edge
+// See: https://opennext.js.org/cloudflare
 
 interface SettingsBody {
   businessId: string;
