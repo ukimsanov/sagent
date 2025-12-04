@@ -6,7 +6,8 @@ import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  // Use resolvedTheme to get actual theme when "system" is selected
+  const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = React.useState(false)
 
   // Avoid hydration mismatch
@@ -23,14 +24,16 @@ export function ThemeToggle() {
     )
   }
 
+  const isDark = resolvedTheme === "dark"
+
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-8 w-8"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
     >
-      {theme === "dark" ? (
+      {isDark ? (
         <Sun className="h-4 w-4 transition-transform" />
       ) : (
         <Moon className="h-4 w-4 transition-transform" />

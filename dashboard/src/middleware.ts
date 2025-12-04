@@ -12,6 +12,7 @@
 import { authkitMiddleware } from '@workos-inc/authkit-nextjs';
 
 export default authkitMiddleware({
+  debug: true, // Enable debug logs to troubleshoot session issues
   middlewareAuth: {
     enabled: true,
     // Routes that don't require authentication

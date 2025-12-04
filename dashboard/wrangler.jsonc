@@ -37,7 +37,8 @@
 	],
 	// Environment variables (non-sensitive)
 	"vars": {
-		"NEXT_PUBLIC_WORKOS_REDIRECT_URI": "https://dashboard.ularkimsanov.com/auth/callback"
+		"NEXT_PUBLIC_WORKOS_REDIRECT_URI": "https://dashboard.ularkimsanov.com/auth/callback",
+		"WORKOS_COOKIE_DOMAIN": "ularkimsanov.com"
 	}
 	/**
 	 * Smart Placement

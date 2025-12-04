@@ -25,6 +25,9 @@ export const metadata: Metadata = {
 	description: "Analytics and management dashboard for WhatsApp AI Sales Agent",
 };
 
+// Force dynamic rendering to ensure consistent session handling
+export const dynamic = "force-dynamic";
+
 export default async function RootLayout({
 	children,
 }: Readonly<{
