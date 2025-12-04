@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Check, Star, Play } from "lucide-react";
@@ -38,28 +38,24 @@ function ChatBubble({
 }) {
 	const isUser = message.role === "user";
 
+	// Always render the message to prevent layout shifts - only animate opacity
 	return (
-		<AnimatePresence>
-			{isVisible && (
-				<motion.div
-					initial={{ opacity: 0, y: 10, scale: 0.95 }}
-					animate={{ opacity: 1, y: 0, scale: 1 }}
-					exit={{ opacity: 0, scale: 0.95 }}
-					transition={{ duration: 0.3, ease: "easeOut" }}
-					className={`flex ${isUser ? "justify-end" : "justify-start"}`}
-				>
-					<div
-						className={`max-w-[85%] px-4 py-2.5 shadow-sm ${
-							isUser
-								? "bg-[#dcf8c6] text-gray-900 rounded-2xl rounded-br-md"
-								: "bg-white text-gray-900 rounded-2xl rounded-bl-md"
-						} ${message.isProduct ? "font-mono text-[13px]" : "text-sm"}`}
-					>
-						<p className="whitespace-pre-line leading-relaxed">{message.text}</p>
-					</div>
-				</motion.div>
-			)}
-		</AnimatePresence>
+		<motion.div
+			initial={{ opacity: 0 }}
+			animate={{ opacity: isVisible ? 1 : 0 }}
+			transition={{ duration: 0.3, ease: "easeOut" }}
+			className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+		>
+			<div
+				className={`max-w-[85%] px-4 py-2.5 shadow-sm ${
+					isUser
+						? "bg-[#dcf8c6] text-gray-900 rounded-2xl rounded-br-md"
+						: "bg-white text-gray-900 rounded-2xl rounded-bl-md"
+				} ${message.isProduct ? "font-mono text-[13px]" : "text-sm"}`}
+			>
+				<p className="whitespace-pre-line leading-relaxed">{message.text}</p>
+			</div>
+		</motion.div>
 	);
 }
 
@@ -103,9 +99,9 @@ function AnimatedChat() {
 	}, []);
 
 	return (
-		<div className="w-full max-w-[320px] sm:max-w-[360px] lg:max-w-[400px] mx-auto">
+		<div className="w-full max-w-[300px] sm:max-w-[320px] lg:max-w-[360px] mx-auto">
 			{/* Phone frame */}
-			<div className="bg-gray-900 rounded-[2.5rem] p-2 shadow-2xl">
+			<div className="bg-gray-200 dark:bg-gray-900 rounded-[2.5rem] p-2 shadow-2xl">
 				<div className="bg-white rounded-[2rem] overflow-hidden">
 					{/* WhatsApp header */}
 					<div className="bg-[#075E54] text-white px-4 py-3 flex items-center gap-3">
@@ -123,7 +119,7 @@ function AnimatedChat() {
 
 					{/* Chat area */}
 					<div
-						className="p-4 space-y-3 min-h-[300px] sm:min-h-[320px] lg:min-h-[340px] overflow-hidden"
+						className="p-3 space-y-2.5 h-64 overflow-hidden"
 						style={{
 							backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e5ddd5' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
 							backgroundColor: "#ECE5DD",
@@ -137,49 +133,44 @@ function AnimatedChat() {
 							/>
 						))}
 
-						{/* Typing indicator */}
-						<AnimatePresence>
-							{isTyping && (
-								<motion.div
-									initial={{ opacity: 0, y: 5 }}
-									animate={{ opacity: 1, y: 0 }}
-									exit={{ opacity: 0 }}
-									className="flex justify-start"
-								>
-									<div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
-										<div className="flex gap-1">
-											<motion.div
-												animate={{ y: [0, -4, 0] }}
-												transition={{
-													repeat: Infinity,
-													duration: 0.6,
-													delay: 0,
-												}}
-												className="h-2 w-2 rounded-full bg-gray-400"
-											/>
-											<motion.div
-												animate={{ y: [0, -4, 0] }}
-												transition={{
-													repeat: Infinity,
-													duration: 0.6,
-													delay: 0.15,
-												}}
-												className="h-2 w-2 rounded-full bg-gray-400"
-											/>
-											<motion.div
-												animate={{ y: [0, -4, 0] }}
-												transition={{
-													repeat: Infinity,
-													duration: 0.6,
-													delay: 0.3,
-												}}
-												className="h-2 w-2 rounded-full bg-gray-400"
-											/>
-										</div>
-									</div>
-								</motion.div>
-							)}
-						</AnimatePresence>
+						{/* Typing indicator - always rendered, opacity controlled */}
+						<motion.div
+							animate={{ opacity: isTyping ? 1 : 0 }}
+							transition={{ duration: 0.2 }}
+							className="flex justify-start"
+						>
+							<div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+								<div className="flex gap-1">
+									<motion.div
+										animate={{ y: isTyping ? [0, -4, 0] : 0 }}
+										transition={{
+											repeat: isTyping ? Infinity : 0,
+											duration: 0.6,
+											delay: 0,
+										}}
+										className="h-2 w-2 rounded-full bg-gray-400"
+									/>
+									<motion.div
+										animate={{ y: isTyping ? [0, -4, 0] : 0 }}
+										transition={{
+											repeat: isTyping ? Infinity : 0,
+											duration: 0.6,
+											delay: 0.15,
+										}}
+										className="h-2 w-2 rounded-full bg-gray-400"
+									/>
+									<motion.div
+										animate={{ y: isTyping ? [0, -4, 0] : 0 }}
+										transition={{
+											repeat: isTyping ? Infinity : 0,
+											duration: 0.6,
+											delay: 0.3,
+										}}
+										className="h-2 w-2 rounded-full bg-gray-400"
+									/>
+								</div>
+							</div>
+						</motion.div>
 					</div>
 
 					{/* Input area */}
@@ -224,7 +215,7 @@ export function Hero() {
 				<div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[100px]" />
 			</div>
 
-			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+			<div className="max-w-7xl mx-auto px-8 sm:px-12 lg:px-12 xl:px-16">
 				<div className="grid lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 xl:gap-20 items-center">
 					{/* Left column - Content */}
 					<div className="text-center lg:text-left">

@@ -52,7 +52,7 @@ const stats = [
 
 export function Testimonials() {
 	return (
-		<section id="testimonials" className="py-16 sm:py-20 lg:py-24 bg-background">
+		<section id="testimonials" className="py-20 sm:py-28 lg:py-32 bg-background">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Section Header */}
 				<div className="text-center mb-16">

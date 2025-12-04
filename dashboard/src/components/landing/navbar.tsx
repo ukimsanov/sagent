@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { MessageCircle } from "lucide-react";
 
@@ -65,6 +66,7 @@ export function Navbar({ className }: NavbarProps) {
 
 					{/* CTA */}
 					<div className="flex items-center gap-3">
+						<ThemeToggle />
 						<Button variant="ghost" asChild className="hidden sm:inline-flex">
 							<Link href="/auth/login">Sign in</Link>
 						</Button>

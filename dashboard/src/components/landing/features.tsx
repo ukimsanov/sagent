@@ -17,55 +17,46 @@ const features = [
 	{
 		icon: Inbox,
 		title: "Unified Inbox",
-		description: "All your conversations from WhatsApp, Instagram, and Telegram in one place. Same AI, same quality, every channel.",
-		className: "md:col-span-2",
-		highlight: true,
-		badges: ["Cross-channel context", "Unified history"],
+		description: "All conversations from WhatsApp, Instagram, and Telegram in one place.",
 	},
 	{
 		icon: Users,
 		title: "Lead Scoring",
-		description: "Automatically identify hot leads based on conversation patterns and buying intent across all channels.",
-		className: "md:col-span-1",
+		description: "Identify hot leads based on conversation patterns and buying intent.",
 	},
 	{
 		icon: Zap,
 		title: "Instant Replies",
-		description: "Sub-3 second response times, 24/7. Never miss a customer on any platform.",
-		className: "md:col-span-1",
+		description: "Sub-3 second response times, 24/7. Never miss a customer.",
 	},
 	{
 		icon: Brain,
 		title: "Smart Recommendations",
-		description: "AI suggests products based on customer preferences and conversation context.",
-		className: "md:col-span-1",
+		description: "AI suggests products based on preferences and context.",
 	},
 	{
 		icon: BarChart3,
 		title: "Analytics Dashboard",
-		description: "Track conversations, conversion rates, and insights across all your channels.",
-		className: "md:col-span-1",
+		description: "Track conversations, conversion rates, and channel insights.",
 	},
 	{
 		icon: Clock,
 		title: "24/7 Availability",
-		description: "Your AI agent works while you sleep, handling inquiries around the clock on every platform.",
-		className: "md:col-span-1",
+		description: "Your AI agent works around the clock on every platform.",
 	},
 	{
 		icon: Shield,
 		title: "Human Handoff",
-		description: "Seamless escalation to your team when conversations need a personal touch.",
-		className: "md:col-span-1",
+		description: "Seamless escalation when conversations need a personal touch.",
 	},
 ];
 
 export function Features() {
 	return (
-		<section id="features" className="py-16 sm:py-20 lg:py-24 bg-muted/30">
+		<section id="features" className="py-20 sm:py-28 lg:py-32 bg-muted/30">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Section Header */}
-				<div className="text-center mb-16">
+				<div className="text-center mb-16 sm:mb-20">
 					<BlurFade delay={0.1}>
 						<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
 							<Sparkles className="h-3.5 w-3.5" />
@@ -84,47 +75,58 @@ export function Features() {
 					</BlurFade>
 				</div>
 
-				{/* Bento Grid */}
-				<div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
-					{features.map((feature, index) => (
-						<BlurFade key={feature.title} delay={0.1 + index * 0.05}>
-							<MagicCard
-								className={`p-6 h-full ${feature.className || ""} ${
-									feature.highlight ? "bg-gradient-to-br from-card to-accent/30" : ""
-								}`}
-							>
-								<div className={`flex flex-col h-full ${feature.highlight ? "justify-between" : ""}`}>
-									<div>
-										<div className={`inline-flex items-center justify-center rounded-lg bg-primary/10 text-primary mb-4 ${
-											feature.highlight ? "h-14 w-14" : "h-10 w-10"
-										}`}>
-											<feature.icon className={feature.highlight ? "h-7 w-7" : "h-5 w-5"} />
+				{/* Feature Grid - Clean 2-3-2 layout */}
+				<div className="space-y-6">
+					{/* First row - 2 cards centered */}
+					<div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
+						{features.slice(0, 2).map((feature, index) => (
+							<BlurFade key={feature.title} delay={0.1 + index * 0.05}>
+								<MagicCard className="p-6 h-full">
+									<div className="flex flex-col items-center text-center">
+										<div className="inline-flex items-center justify-center rounded-xl bg-primary/10 text-primary mb-4 h-12 w-12">
+											<feature.icon className="h-6 w-6" />
 										</div>
-										<h3 className={`font-semibold mb-2 ${feature.highlight ? "text-xl" : "text-base"}`}>
-											{feature.title}
-										</h3>
-										<p className={`text-muted-foreground ${feature.highlight ? "text-base" : "text-sm"}`}>
-											{feature.description}
-										</p>
+										<h3 className="font-semibold text-lg mb-2">{feature.title}</h3>
+										<p className="text-muted-foreground text-sm">{feature.description}</p>
 									</div>
-									{feature.highlight && (
-										<div className="mt-6 pt-4 border-t border-border/50">
-											<div className="flex items-center gap-4 text-sm">
-												<div className="flex items-center gap-1.5">
-													<div className="h-2 w-2 rounded-full bg-chart-2" />
-													<span className="text-muted-foreground">Cross-channel context</span>
-												</div>
-												<div className="flex items-center gap-1.5">
-													<div className="h-2 w-2 rounded-full bg-chart-3" />
-													<span className="text-muted-foreground">Unified history</span>
-												</div>
-											</div>
+								</MagicCard>
+							</BlurFade>
+						))}
+					</div>
+
+					{/* Second row - 3 cards */}
+					<div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+						{features.slice(2, 5).map((feature, index) => (
+							<BlurFade key={feature.title} delay={0.2 + index * 0.05}>
+								<MagicCard className="p-6 h-full">
+									<div className="flex flex-col items-center text-center">
+										<div className="inline-flex items-center justify-center rounded-xl bg-primary/10 text-primary mb-4 h-12 w-12">
+											<feature.icon className="h-6 w-6" />
 										</div>
-									)}
-								</div>
-							</MagicCard>
-						</BlurFade>
-					))}
+										<h3 className="font-semibold text-lg mb-2">{feature.title}</h3>
+										<p className="text-muted-foreground text-sm">{feature.description}</p>
+									</div>
+								</MagicCard>
+							</BlurFade>
+						))}
+					</div>
+
+					{/* Third row - 2 cards centered */}
+					<div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
+						{features.slice(5, 7).map((feature, index) => (
+							<BlurFade key={feature.title} delay={0.3 + index * 0.05}>
+								<MagicCard className="p-6 h-full">
+									<div className="flex flex-col items-center text-center">
+										<div className="inline-flex items-center justify-center rounded-xl bg-primary/10 text-primary mb-4 h-12 w-12">
+											<feature.icon className="h-6 w-6" />
+										</div>
+										<h3 className="font-semibold text-lg mb-2">{feature.title}</h3>
+										<p className="text-muted-foreground text-sm">{feature.description}</p>
+									</div>
+								</MagicCard>
+							</BlurFade>
+						))}
+					</div>
 				</div>
 			</div>
 		</section>
