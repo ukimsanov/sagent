@@ -31,6 +31,24 @@
 			"binding": "PRODUCT_IMAGES",
 			"bucket_name": "product-images"
 		}
+	],
+
+	// Durable Objects for atomic conversation state (C4 fix)
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CONVERSATION_DO",
+				"class_name": "ConversationDO"
+			}
+		]
+	},
+
+	// DO migrations - required for first deploy
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["ConversationDO"]
+		}
 	]
 
 	// Secrets (set via `wrangler secret put`):

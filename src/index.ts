@@ -19,29 +19,42 @@ import {
 import { isAudioMessage } from './whatsapp/types';
 import {
   sendTextMessage,
-  sendImageMessage,
   markAsRead,
   simulateTypingDelay,
   splitMessage
 } from './whatsapp/messages';
+// H3 FIX: Reliable message sending with retry + dead letter queue
+import {
+  sendTextMessageReliable,
+  sendImageMessageReliable,
+  type SendContext
+} from './whatsapp/messages-reliable';
 import { handleIncomingMessage as handleMessage } from './ai/handler';
 import { buildIncrementalSummaryPrompt } from './ai/prompts';
 import { transcribeAudioMessage } from './ai/transcription';
 import { sendHandoffNotification } from './notifications/handoff';
 import * as db from './db/queries';
+// C4 FIX: Use Durable Objects for atomic conversation state (eliminates race conditions)
 import {
   getConversation,
   addMessage,
   formatMessagesForLLM,
   wouldOverflow,
   type Message
-} from './utils/kv';
+} from './utils/conversation-do-client';
 // Phase 5: Scale & Polish
 import {
   isPhoneRateLimited,
   buildRateLimitResponse
 } from './utils/rate-limiter';
 import { updateLeadScoreInBackground } from './utils/lead-scoring';
+// Phase 5: Dead Letter Queue monitoring
+import {
+  getDeadLetterStats,
+  getUnresolvedEntries,
+  resolveEntry,
+  type OperationType
+} from './db/dead-letter';
 import { maskPhoneNumber, safeLog } from './utils/pii-masking';
 import { logToDeadLetter } from './db/dead-letter';
 
@@ -52,7 +65,8 @@ import { logToDeadLetter } from './db/dead-letter';
 interface Env {
   // Bindings from wrangler.jsonc
   DB: D1Database;
-  CONVERSATIONS: KVNamespace;
+  CONVERSATIONS: KVNamespace; // Used for dedup keys, rate limiting, transcription cache
+  CONVERSATION_DO: DurableObjectNamespace; // C4 FIX: Atomic conversation state
 
   // Environment variables
   WHATSAPP_VERIFY_TOKEN: string;
@@ -92,6 +106,13 @@ export default {
     // Cleanup endpoint for testing (removes all data for a specific WhatsApp number)
     if (url.pathname === '/cleanup' && request.method === 'POST') {
       return handleCleanup(request, env);
+    }
+
+    // =========================================================================
+    // Admin: Dead Letter Queue monitoring endpoints
+    // =========================================================================
+    if (url.pathname.startsWith('/admin/dlq')) {
+      return handleAdminDLQ(request, url, env);
     }
 
     // WhatsApp webhook endpoint
@@ -226,6 +247,83 @@ async function handleCleanup(request: Request, env: Env): Promise<Response> {
 }
 
 // ============================================================================
+// Admin: Dead Letter Queue Monitoring (GET/POST /admin/dlq/*)
+// ============================================================================
+
+async function handleAdminDLQ(request: Request, url: URL, env: Env): Promise<Response> {
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+
+  // Auth check - reuse CLEANUP_SECRET for admin endpoints
+  const authHeader = request.headers.get('Authorization');
+  if (!env.CLEANUP_SECRET || authHeader !== `Bearer ${env.CLEANUP_SECRET}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders
+    });
+  }
+
+  try {
+    // GET /admin/dlq/stats - Get DLQ statistics
+    if (url.pathname === '/admin/dlq/stats' && request.method === 'GET') {
+      const stats = await getDeadLetterStats(env.DB);
+      return new Response(JSON.stringify({
+        success: true,
+        stats
+      }), { headers: jsonHeaders });
+    }
+
+    // GET /admin/dlq/entries - List unresolved entries
+    if (url.pathname === '/admin/dlq/entries' && request.method === 'GET') {
+      const typeParam = url.searchParams.get('type') as OperationType | null;
+      const limitParam = parseInt(url.searchParams.get('limit') || '50', 10);
+      const entries = await getUnresolvedEntries(
+        env.DB,
+        typeParam || undefined,
+        Math.min(limitParam, 100) // Cap at 100
+      );
+      return new Response(JSON.stringify({
+        success: true,
+        count: entries.length,
+        entries
+      }), { headers: jsonHeaders });
+    }
+
+    // POST /admin/dlq/resolve - Mark entry as resolved
+    if (url.pathname === '/admin/dlq/resolve' && request.method === 'POST') {
+      const body = await request.json() as { id?: string; resolved_by?: string };
+      if (!body.id) {
+        return new Response(JSON.stringify({ error: 'id required' }), {
+          status: 400,
+          headers: jsonHeaders
+        });
+      }
+      await resolveEntry(
+        env.DB,
+        body.id,
+        (body.resolved_by as 'auto_retry' | 'manual' | 'expired') || 'manual'
+      );
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Entry ${body.id} marked as resolved`
+      }), { headers: jsonHeaders });
+    }
+
+    // Unknown DLQ endpoint
+    return new Response(JSON.stringify({ error: 'Unknown DLQ endpoint' }), {
+      status: 404,
+      headers: jsonHeaders
+    });
+
+  } catch (error) {
+    console.error('Admin DLQ error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: jsonHeaders
+    });
+  }
+}
+
+// ============================================================================
 // Webhook Verification (GET /webhook)
 // ============================================================================
 
@@ -310,7 +408,8 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
         businessPhoneNumberId: message.businessPhoneNumberId,
         from: message.from,
         fromName: message.fromName,
-        text: messageText
+        text: messageText,
+        messageId: message.messageId, // For DLQ traceability
       };
 
       safeLog('info', 'Processing text message', {
@@ -391,6 +490,7 @@ async function processMessage(
     from: string;
     fromName: string;
     text: string;
+    messageId: string; // WhatsApp message ID for DLQ traceability
   }
 ): Promise<void> {
   // Get or create lead
@@ -402,9 +502,9 @@ async function processMessage(
     lead.name = message.fromName;
   }
 
-  // Get recent conversation history from KV
+  // Get recent conversation history from Durable Object (C4 FIX: atomic access)
   const conversation = await getConversation(
-    env.CONVERSATIONS,
+    env.CONVERSATION_DO,
     business.id,
     message.from,
     lead.id
@@ -425,8 +525,9 @@ async function processMessage(
   }
 
   // Add user message to conversation (trimming happens automatically in addMessage)
+  // C4 FIX: Using Durable Object for atomic access
   await addMessage(
-    env.CONVERSATIONS,
+    env.CONVERSATION_DO,
     business.id,
     message.from,
     lead.id,
@@ -537,17 +638,27 @@ async function processMessage(
   // Add a small delay to seem more human
   await simulateTypingDelay(response.message.length);
 
+  // H3 FIX: Build send context for reliable message sending
+  const sendCtx: SendContext = {
+    db: env.DB,
+    phoneNumberId: message.businessPhoneNumberId,
+    accessToken: env.WHATSAPP_ACCESS_TOKEN,
+    to: message.from,
+    leadId: lead.id,
+    businessId: business.id,
+    incomingMessageId: message.messageId, // DLQ: trace response back to incoming message
+  };
+
   // Split long messages if needed
   const messageParts = splitMessage(response.message);
 
-  // Send response(s)
+  // Send response(s) with retry logic (H3 FIX)
   for (const part of messageParts) {
-    await sendTextMessage(
-      message.businessPhoneNumberId,
-      env.WHATSAPP_ACCESS_TOKEN,
-      message.from,
-      part
-    );
+    const result = await sendTextMessageReliable(sendCtx, part);
+    if (!result.success) {
+      console.error(`Message send failed after ${result.attempts} attempts: ${result.error}`);
+      // Continue trying other parts even if one fails
+    }
 
     // Small delay between multiple messages
     if (messageParts.length > 1) {
@@ -555,30 +666,23 @@ async function processMessage(
     }
   }
 
-  // Send product images if requested by LLM decision
+  // Send product images if requested by LLM decision (H3 FIX: with retry)
   if (response.imagesToSend && response.imagesToSend.length > 0) {
     console.log(`📸 Sending ${response.imagesToSend.length} product image(s)`);
     for (const image of response.imagesToSend) {
-      try {
-        await sendImageMessage(
-          message.businessPhoneNumberId,
-          env.WHATSAPP_ACCESS_TOKEN,
-          message.from,
-          image.url,
-          image.caption
-        );
-        // Small delay between images
-        await new Promise(resolve => setTimeout(resolve, 300));
-      } catch (error) {
-        console.error('Failed to send product image:', error);
+      const result = await sendImageMessageReliable(sendCtx, image.url, image.caption);
+      if (!result.success) {
+        console.error(`Image send failed after ${result.attempts} attempts: ${result.error}`);
         // Continue with other images even if one fails
       }
+      // Small delay between images
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
   }
 
-  // Save assistant response to conversation
+  // Save assistant response to conversation (C4 FIX: using Durable Object)
   await addMessage(
-    env.CONVERSATIONS,
+    env.CONVERSATION_DO,
     business.id,
     message.from,
     lead.id,
@@ -694,6 +798,7 @@ async function processTranscribedAudio(
     businessPhoneNumberId: string;
     from: string;
     fromName: string;
+    messageId: string; // WhatsApp message ID for DLQ traceability
   },
   transcribedText: string
 ): Promise<void> {
@@ -702,7 +807,8 @@ async function processTranscribedAudio(
     businessPhoneNumberId: message.businessPhoneNumberId,
     from: message.from,
     fromName: message.fromName,
-    text: transcribedText
+    text: transcribedText,
+    messageId: message.messageId, // For DLQ traceability
   };
 
   // Process using existing text message flow
@@ -766,18 +872,29 @@ async function summarizeConversation(
       next_steps: string | null;
     };
 
-    // Store the summary
-    await db.upsertConversationSummary(
+    // Store the summary with H7 FIX: pass message count for race condition prevention
+    const wasUpdated = await db.upsertConversationSummary(
       env.DB,
       leadId,
       extracted.summary,
       extracted.key_interests || [],
       extracted.objections || [],
-      extracted.next_steps
+      extracted.next_steps,
+      messages.length // H7 FIX: Track message count to prevent stale overwrites
     );
 
-    console.log(`Conversation summary saved for lead ${leadId}`);
+    if (wasUpdated) {
+      console.log(`Conversation summary saved for lead ${leadId} (${messages.length} messages)`);
+    } else {
+      console.log(`H7: Summary update skipped for lead ${leadId} - a newer summary exists`);
+    }
   } catch (error) {
     console.error('Failed to summarize conversation:', error);
   }
 }
+
+// ============================================================================
+// Durable Objects Export (Required for wrangler binding)
+// ============================================================================
+
+export { ConversationDO } from './durable-objects/ConversationDO';

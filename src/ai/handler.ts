@@ -154,6 +154,11 @@ const PURE_GREETING_REGEX = /^(hi|hello|hey|yo|sup|good\s+(morning|afternoon|eve
 const PURE_THANKS_REGEX = /^(thanks?|thank\s+you|thx|ty)[\s!.]*$/i;
 const PURE_FAREWELL_REGEX = /^(bye|goodbye|see\s+ya|later)[\s!.]*$/i;
 
+// Vague shopping phrases that should trigger clarification, not product search
+const VAGUE_PHRASES_REGEX = /\b(something|anything|nice|cool|good|stuff|things?)\b/i;
+// Specific product terms that indicate a concrete request (not vague)
+const SPECIFIC_PRODUCT_REGEX = /\b(hoodie|hoodies|jeans|jacket|dress|t-?shirt|pants|shorts|sweater|coat|top|bottoms?|shirt|shoes?|sneakers?|boots?|sandals?|hat|cap|beanie|bag|backpack|size|color|colour|black|white|blue|red|green|small|medium|large|xl|xxl|\$\d+|under\s+\d+|cheap|expensive)\b/i;
+
 function isPureGreeting(message: string): boolean {
   return message.length < 20 && PURE_GREETING_REGEX.test(message.trim());
 }
@@ -164,6 +169,46 @@ function isPureThanks(message: string): boolean {
 
 function isPureFarewell(message: string): boolean {
   return message.length < 15 && PURE_FAREWELL_REGEX.test(message.trim());
+}
+
+/**
+ * Detect vague shopping requests like:
+ * - "I need something"
+ * - "show me something nice"
+ * - "anything cool?"
+ *
+ * BUT NOT:
+ * - "I need something black" (has specific: color)
+ * - "show me something like a hoodie" (has specific: hoodie)
+ * - "anything under $50" (has specific: price)
+ */
+function isVagueRequest(message: string): boolean {
+  const normalized = message.toLowerCase().trim();
+
+  // Must contain vague phrase
+  const hasVaguePhrase = VAGUE_PHRASES_REGEX.test(normalized);
+  if (!hasVaguePhrase) return false;
+
+  // If it also has specific product terms, it's NOT vague
+  const hasSpecificTerm = SPECIFIC_PRODUCT_REGEX.test(normalized);
+  if (hasSpecificTerm) return false;
+
+  // Additional check: very short messages with just "something" are vague
+  // e.g., "I need something", "show me something", "anything?"
+  return true;
+}
+
+/**
+ * Get a deterministic clarifying question for vague requests.
+ * This prevents searching the DB with "something" and getting 0 results.
+ */
+function getVagueRequestClarification(brandTone: 'friendly' | 'professional' | 'casual'): string {
+  const templates = {
+    friendly: "Got you! 😊 Are you looking for tops, bottoms, or accessories? I can help narrow it down!",
+    professional: "I'd be happy to help. Could you tell me what type of item you're looking for — tops, bottoms, or accessories?",
+    casual: "Got you — are you looking for tops, bottoms, or accessories?",
+  };
+  return templates[brandTone];
 }
 
 // ============================================================================
@@ -252,6 +297,21 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   }
 
   // =========================================================================
+  // FAST PATH: Vague shopping requests → clarification (skip product search)
+  // This catches "I need something", "show me anything", etc.
+  // and asks for specifics instead of searching DB and getting 0 results.
+  // =========================================================================
+  if (isVagueRequest(messageText)) {
+    console.log('⚡ Fast-path: vague request → clarification (no product search)');
+    return {
+      message: getVagueRequestClarification(config.brandTone),
+      action: 'ask_clarification',
+      flaggedForHuman: false,
+      intentType: 'vague_request',
+    };
+  }
+
+  // =========================================================================
   // LLM PATH: Everything else goes through the decision engine
   // =========================================================================
 
@@ -261,11 +321,16 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   let products: ProductWithMetadata[] = [];
   let searchQuery = '';
 
+  // Pre-fetch available categories for 0-products case (executor needs these)
+  const availableCategories = await getAllCategories(ctx.db, ctx.businessId);
+
   if (needsProductSearch(messageText)) {
     searchQuery = extractSearchQuery(messageText);
     console.log('🔍 Searching products for:', searchQuery);
     products = await searchProducts(ctx.db, ctx.businessId, searchQuery);
     console.log(`🔍 Found ${products.length} products`);
+    // NOTE: We no longer skip LLM for 0 products.
+    // LLM decides the action; executor builds the message from verified DB data.
   }
 
   // Step 2: Build environment snapshot
@@ -296,7 +361,7 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
 
   // Step 5: Handle LLM response (or fallback)
   if (decision && isValidDecision(decision)) {
-    return await processLLMDecision(decision, ctx, products, searchQuery);
+    return await processLLMDecision(decision, ctx, products, searchQuery, availableCategories);
   }
 
   // =========================================================================
@@ -315,7 +380,8 @@ async function processLLMDecision(
   decision: LLMDecision,
   ctx: HandlerContext,
   products: ProductWithMetadata[],
-  searchQuery: string
+  searchQuery: string,
+  availableCategories: string[]
 ): Promise<HandlerResponse> {
   const config = getBusinessConfig(ctx.business);
 
@@ -338,34 +404,39 @@ async function processLLMDecision(
   // force handoff instead to avoid frustrating the customer.
   // =========================================================================
   if (decision.conversation_action === 'ask_clarification') {
-    const clarificationCount = countConsecutiveClarifications(ctx.conversationHistory);
-    console.log(`🔄 Clarification count: ${clarificationCount}/${MAX_CONSECUTIVE_CLARIFICATIONS}`);
+    const previousClarifications = countConsecutiveClarifications(ctx.conversationHistory);
+    const nextClarificationNumber = previousClarifications + 1;
+    console.log(`🔄 Sending clarification #${nextClarificationNumber} (max: ${MAX_CONSECUTIVE_CLARIFICATIONS})`);
 
-    if (clarificationCount >= MAX_CONSECUTIVE_CLARIFICATIONS - 1) {
+    if (nextClarificationNumber >= MAX_CONSECUTIVE_CLARIFICATIONS) {
       // This would be the Nth clarification, force handoff instead
-      console.log('🚨 Clarification loop detected - forcing handoff');
+      console.warn('🚨 Clarification limit reached, forcing handoff');
       await createHumanFlag(
         ctx.db,
         ctx.lead.id,
         'medium',
-        `Clarification loop: ${clarificationCount + 1} consecutive clarifications`
+        `Clarification loop: ${nextClarificationNumber} consecutive clarifications`
       );
       return {
         message: getHandoffMessage(config.brandTone),
         action: 'handoff',
         flaggedForHuman: true,
         intentType: 'clarification_loop',
-        clarificationCount: clarificationCount + 1,
+        clarificationCount: nextClarificationNumber,
       };
     }
   }
 
   // Execute business actions with policy gates
+  // Pass extra context for 0-products handling (executor builds message from DB data)
   const executionResult = await executeDecision(decision, {
     db: ctx.db,
     business: ctx.business,
     lead: ctx.lead,
     products,
+    searchQuery,
+    availableCategories,
+    brandTone: config.brandTone,
   });
 
   // Use the potentially modified decision

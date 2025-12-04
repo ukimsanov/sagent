@@ -21,6 +21,10 @@ export interface ExecutionContext {
   business: Business;
   lead: Lead;
   products: ProductWithMetadata[];
+  // For 0-products handling: LLM decides action, code builds message from DB data
+  searchQuery?: string;
+  availableCategories?: string[];
+  brandTone?: 'friendly' | 'professional' | 'casual';
 }
 
 export interface ExecutionResult {
@@ -92,6 +96,32 @@ export async function executeDecision(
       console.warn('Some product IDs were invalid, filtering them out');
       modifiedDecision.product_ids = validProductIds;
     }
+  }
+
+  // =========================================================================
+  // 0-PRODUCTS HANDLING: LLM decides action, code builds message from DB data
+  // This prevents hallucination about inventory we don't have.
+  // =========================================================================
+  if (ctx.products.length === 0 && ctx.searchQuery) {
+    console.log('🛡️ 0-products case: building message from verified DB data');
+
+    // Override show_products to ask_clarification (can't show what we don't have)
+    if (modifiedDecision.conversation_action === 'show_products') {
+      console.log('🔄 Overriding show_products → ask_clarification (0 products)');
+      modifiedDecision.conversation_action = 'ask_clarification';
+    }
+
+    // Build message deterministically from DB-verified categories
+    // DO NOT trust LLM's message field for catalog claims
+    const safeMessage = buildNoProductsMessage({
+      searchQuery: ctx.searchQuery,
+      categories: ctx.availableCategories || [],
+      tone: ctx.brandTone || 'friendly',
+      llmAction: decision.conversation_action,
+    });
+
+    modifiedDecision.message = safeMessage;
+    console.log('🛡️ Safe message built from DB categories');
   }
 
   // Process each business action
@@ -485,4 +515,75 @@ export function getProductsWithImages(
   return products.filter(
     p => decision.product_ids!.includes(p.id) && p.image_urls.length > 0
   );
+}
+
+// ============================================================================
+// 0-Products Message Builder (Code-Controlled, DB-Verified)
+// ============================================================================
+
+interface NoProductsMessageParams {
+  searchQuery: string;
+  categories: string[];
+  tone: 'friendly' | 'professional' | 'casual';
+  llmAction: string; // What the LLM wanted to do
+}
+
+/**
+ * Build a safe message for 0-products case.
+ *
+ * IMPORTANT: This function ONLY uses data from the DB (categories).
+ * It never trusts LLM output for inventory claims.
+ *
+ * The message varies based on:
+ * - What the LLM wanted to do (ask_clarification vs answer_question)
+ * - Brand tone
+ * - Available categories from DB
+ */
+function buildNoProductsMessage(params: NoProductsMessageParams): string {
+  const { searchQuery, categories, tone, llmAction } = params;
+
+  // Join categories nicely: "Hoodies, Jeans, and Accessories"
+  const categoryList = joinWithAnd(categories.slice(0, 4)); // Max 4 categories
+
+  // If LLM wanted to ask clarification, it's probably a vague query
+  // Build a clarifying message
+  if (llmAction === 'ask_clarification') {
+    const clarifyTemplates = {
+      friendly: categories.length > 0
+        ? `I'd love to help! We don't have "${searchQuery}" specifically, but we do carry ${categoryList}. Which of those interests you? 😊`
+        : `I'd love to help! We don't have "${searchQuery}" in stock right now. Is there something else I can help you find?`,
+      professional: categories.length > 0
+        ? `Thank you for your interest. We don't currently carry "${searchQuery}", but we do offer ${categoryList}. Would any of these work for you?`
+        : `Thank you for your interest. We don't currently stock "${searchQuery}". May I help you find something else?`,
+      casual: categories.length > 0
+        ? `We don't have "${searchQuery}" right now, but we've got ${categoryList}. Want to check any of those out?`
+        : `No luck on "${searchQuery}" sadly. Anything else I can help with?`,
+    };
+    return clarifyTemplates[tone];
+  }
+
+  // Default: answer_question / show_products / other
+  // Be honest about not having the item, suggest alternatives
+  const answerTemplates = {
+    friendly: categories.length > 0
+      ? `We don't carry "${searchQuery}" at the moment 😕 But we do have ${categoryList}! Would any of those work for what you're looking for?`
+      : `We don't have "${searchQuery}" in stock right now. Is there something else I can help you find?`,
+    professional: categories.length > 0
+      ? `We don't currently stock "${searchQuery}". However, we do offer ${categoryList}. Would you like to explore any of these options?`
+      : `We don't currently have "${searchQuery}" available. Is there anything else I can assist you with?`,
+    casual: categories.length > 0
+      ? `No "${searchQuery}" in stock, sadly 😅 But we've got ${categoryList}. Want me to show you something from those?`
+      : `We don't have "${searchQuery}" right now. Anything else you're looking for?`,
+  };
+  return answerTemplates[tone];
+}
+
+/**
+ * Join array with commas and "and": ["A", "B", "C"] → "A, B, and C"
+ */
+function joinWithAnd(items: string[]): string {
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
 }

@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS conversation_summaries (
   key_interests TEXT, -- JSON array of product interests
   objections TEXT, -- JSON array of objections raised
   next_steps TEXT, -- What the customer needs/wants next
+  message_count INTEGER DEFAULT 0, -- H7 FIX: Track messages covered to prevent race conditions
   updated_at INTEGER DEFAULT (unixepoch()),
   FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
 );

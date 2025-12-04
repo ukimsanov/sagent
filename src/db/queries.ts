@@ -90,6 +90,7 @@ export interface ConversationSummary {
   key_interests: string | null; // JSON array
   objections: string | null; // JSON array
   next_steps: string | null;
+  message_count: number; // H7 FIX: Track messages covered for race condition prevention
   updated_at: number;
 }
 
@@ -383,26 +384,41 @@ export async function getConversationSummary(
     .first<ConversationSummary>();
 }
 
+/**
+ * Upsert conversation summary with race condition protection.
+ *
+ * H7 FIX: Only update if messageCount > existing message_count.
+ * This ensures that if two summarizations run in parallel,
+ * the one based on more messages always wins.
+ *
+ * @returns true if summary was updated, false if skipped (stale data)
+ */
 export async function upsertConversationSummary(
   db: D1Database,
   leadId: string,
   summary: string,
   keyInterests: string[],
   objections: string[],
-  nextSteps: string | null
-): Promise<void> {
+  nextSteps: string | null,
+  messageCount: number // H7 FIX: Track how many messages this summary covers
+): Promise<boolean> {
   const id = `summary-${leadId}`;
 
-  await db
+  // H7 FIX: Only update if new message_count > existing
+  // This prevents stale summarizations from overwriting newer ones
+  const result = await db
     .prepare(`
-      INSERT INTO conversation_summaries (id, lead_id, summary, key_interests, objections, next_steps, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+      INSERT INTO conversation_summaries (id, lead_id, summary, key_interests, objections, next_steps, message_count, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
       ON CONFLICT(lead_id) DO UPDATE SET
         summary = excluded.summary,
         key_interests = excluded.key_interests,
         objections = excluded.objections,
         next_steps = excluded.next_steps,
+        message_count = excluded.message_count,
         updated_at = unixepoch()
+      WHERE excluded.message_count > conversation_summaries.message_count
+         OR conversation_summaries.message_count IS NULL
     `)
     .bind(
       id,
@@ -410,9 +426,17 @@ export async function upsertConversationSummary(
       summary,
       JSON.stringify(keyInterests),
       JSON.stringify(objections),
-      nextSteps
+      nextSteps,
+      messageCount
     )
     .run();
+
+  // Check if rows were affected (if 0, the update was skipped due to stale data)
+  const updated = result.meta.changes > 0;
+  if (!updated) {
+    console.log(`H7: Skipped stale summary for lead ${leadId} (messageCount: ${messageCount})`);
+  }
+  return updated;
 }
 
 // ============================================================================
