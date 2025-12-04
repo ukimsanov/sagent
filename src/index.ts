@@ -35,6 +35,13 @@ import {
   wouldOverflow,
   type Message
 } from './utils/kv';
+// Phase 5: Scale & Polish
+import {
+  isPhoneRateLimited,
+  buildRateLimitResponse
+} from './utils/rate-limiter';
+import { updateLeadScoreInBackground } from './utils/lead-scoring';
+import { maskPhoneNumber, safeLog } from './utils/pii-masking';
 
 // ============================================================================
 // Types
@@ -246,6 +253,24 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
       return;
     }
 
+    // Phase 5: Rate limiting check (before processing)
+    const phoneRateLimit = await isPhoneRateLimited(env.CONVERSATIONS, message.from);
+    if (!phoneRateLimit.allowed) {
+      safeLog('warn', 'Rate limited phone number', {
+        phone: maskPhoneNumber(message.from),
+        remaining: phoneRateLimit.remaining,
+        retryAfter: phoneRateLimit.retryAfter,
+      });
+      // Send rate limit message
+      await sendTextMessage(
+        message.businessPhoneNumberId,
+        env.WHATSAPP_ACCESS_TOKEN,
+        message.from,
+        buildRateLimitResponse(phoneRateLimit)
+      );
+      return;
+    }
+
     // Handle text OR audio messages
     if (message.text) {
       // Text message - process directly
@@ -256,7 +281,10 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
         text: message.text
       };
 
-      console.log(`Processing text message from ${textMessage.from}: ${textMessage.text}`);
+      safeLog('info', 'Processing text message', {
+        phone: maskPhoneNumber(textMessage.from),
+        messageLength: textMessage.text.length,
+      });
 
       // Mark as read immediately (shows blue checkmarks)
       await markAsRead(
@@ -381,12 +409,26 @@ async function processMessage(
 
   const processingTime = Date.now() - startTime;
 
-  console.log('Agent response:', {
-    messageLength: response.message.length,
+  safeLog('info', 'Agent response', {
+    leadId: lead.id,
     action: response.action,
     flaggedForHuman: response.flaggedForHuman,
-    processingTimeMs: processingTime
+    processingTimeMs: processingTime,
   });
+
+  // Phase 5: Update lead score in background
+  ctx.waitUntil(
+    updateLeadScoreInBackground(env.DB, lead.id, {
+      intentType: response.intentType || null,
+      action: response.action,
+      messageCount: lead.message_count,
+      productsShown: response.productsShown?.length || 0,
+      clarificationCount: response.clarificationCount || 0,
+      flaggedForHuman: response.flaggedForHuman,
+      processingTimeMs: processingTime,
+      previousScore: lead.score,
+    })
+  );
 
   // Log event for analytics (Phase 3)
   try {
