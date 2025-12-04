@@ -119,9 +119,9 @@ export default async function ConversationDetailPage({
   }));
 
   return (
-    <div className="h-[calc(100vh-2rem)] flex flex-col">
+    <div className="h-[calc(100vh-8rem)] flex flex-col">
       {/* Header */}
-      <div className="flex items-center gap-4 pb-4">
+      <div className="flex items-center gap-4 pb-4 shrink-0">
         <Link href="/conversations">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
@@ -159,16 +159,17 @@ export default async function ConversationDetailPage({
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-[1fr_300px] gap-4 min-h-0">
+      <div className="flex-1 grid grid-cols-[1fr_300px] gap-4 min-h-0 overflow-hidden">
         {/* Message Thread */}
-        <Card className="flex flex-col min-h-0">
-          <CardHeader className="py-3 border-b">
+        <Card className="flex flex-col overflow-hidden">
+          <CardHeader className="py-3 border-b shrink-0">
             <CardTitle className="text-base flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
               Conversation ({messages.length} messages)
             </CardTitle>
           </CardHeader>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-hidden">
+            <ScrollArea className="h-full">
             <CardContent className="py-4 space-y-4">
               {messages.length > 0 ? (
                 messages.map((message, index) => {
@@ -230,11 +231,12 @@ export default async function ConversationDetailPage({
                 </p>
               )}
             </CardContent>
-          </ScrollArea>
+            </ScrollArea>
+          </div>
         </Card>
 
         {/* Right Sidebar */}
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-auto">
           {/* Lead Info */}
           <Card>
             <CardHeader className="py-3">

@@ -161,7 +161,7 @@ export async function getAnalyticsSummary(
 }
 
 /**
- * Get message events for a business (paginated)
+ * Get message events for a business (paginated with search/filter)
  */
 export async function getMessageEvents(
   db: D1Database,
@@ -169,23 +169,48 @@ export async function getMessageEvents(
   options: {
     limit?: number;
     offset?: number;
+    search?: string;
+    action?: string;
+    flagged?: boolean;
   } = {}
 ) {
-  const { limit = 50, offset = 0 } = options;
+  const { limit = 50, offset = 0, search, action, flagged } = options;
+
+  // Build WHERE clauses dynamically
+  const conditions: string[] = ['business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (search) {
+    conditions.push('(user_message LIKE ? OR agent_response LIKE ? OR lead_id LIKE ?)');
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern, searchPattern);
+  }
+
+  if (action) {
+    conditions.push('action = ?');
+    params.push(action);
+  }
+
+  if (flagged !== undefined) {
+    conditions.push('flagged_for_human = ?');
+    params.push(flagged ? 1 : 0);
+  }
+
+  const whereClause = conditions.join(' AND ');
 
   const countResult = await db
-    .prepare('SELECT COUNT(*) as count FROM message_events WHERE business_id = ?')
-    .bind(businessId)
+    .prepare(`SELECT COUNT(*) as count FROM message_events WHERE ${whereClause}`)
+    .bind(...params)
     .first<{ count: number }>();
 
   const result = await db
     .prepare(`
       SELECT * FROM message_events
-      WHERE business_id = ?
+      WHERE ${whereClause}
       ORDER BY timestamp DESC
       LIMIT ? OFFSET ?
     `)
-    .bind(businessId, limit, offset)
+    .bind(...params, limit, offset)
     .all<MessageEvent>();
 
   return {
@@ -195,7 +220,7 @@ export async function getMessageEvents(
 }
 
 /**
- * Get leads for a business (paginated)
+ * Get leads for a business (paginated with search/filter)
  */
 export async function getLeads(
   db: D1Database,
@@ -203,23 +228,42 @@ export async function getLeads(
   options: {
     limit?: number;
     offset?: number;
+    search?: string;
+    status?: string;
   } = {}
 ) {
-  const { limit = 50, offset = 0 } = options;
+  const { limit = 50, offset = 0, search, status } = options;
+
+  // Build WHERE clauses dynamically
+  const conditions: string[] = ['business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (search) {
+    conditions.push('(name LIKE ? OR whatsapp_number LIKE ?)');
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern);
+  }
+
+  if (status) {
+    conditions.push('status = ?');
+    params.push(status);
+  }
+
+  const whereClause = conditions.join(' AND ');
 
   const countResult = await db
-    .prepare('SELECT COUNT(*) as count FROM leads WHERE business_id = ?')
-    .bind(businessId)
+    .prepare(`SELECT COUNT(*) as count FROM leads WHERE ${whereClause}`)
+    .bind(...params)
     .first<{ count: number }>();
 
   const result = await db
     .prepare(`
       SELECT * FROM leads
-      WHERE business_id = ?
+      WHERE ${whereClause}
       ORDER BY last_contact DESC
       LIMIT ? OFFSET ?
     `)
-    .bind(businessId, limit, offset)
+    .bind(...params, limit, offset)
     .all<Lead>();
 
   return {

@@ -1,14 +1,5 @@
-import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  MessageSquare,
-  Users,
-  Clock,
-  AlertCircle,
-  TrendingUp,
-  ArrowUpRight,
-} from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   getDB,
   getAnalyticsSummary,
@@ -18,6 +9,11 @@ import {
   getTopSearchQueries,
   ResponseAction
 } from "@/lib/db";
+import { StatsCard } from "@/components/dashboard/stats-card";
+import { AnimatedSection } from "@/components/dashboard/animated-section";
+import { AnimatedProgress } from "@/components/dashboard/animated-progress";
+import { ActivityItem } from "@/components/dashboard/activity-item";
+import { BlurFade } from "@/components/ui/blur-fade";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
@@ -34,6 +30,7 @@ function getActionColor(action: string) {
     greet: "bg-chart-5/10 text-chart-5",
     thank: "bg-chart-2/10 text-chart-2",
     handoff: "bg-destructive/10 text-destructive",
+    farewell: "bg-muted text-muted-foreground",
   };
   return colors[action] || "bg-muted text-muted-foreground";
 }
@@ -50,7 +47,6 @@ function formatTimeAgo(timestamp: number) {
 }
 
 function maskPhone(phone: string) {
-  // Format: +1 xxx-xxx-4567
   if (phone.length >= 4) {
     return `+1 xxx-xxx-${phone.slice(-4)}`;
   }
@@ -65,110 +61,87 @@ export default async function DashboardPage() {
   const oneDayAgo = now - 24 * 60 * 60 * 1000;
 
   const stats = await getAnalyticsSummary(db, BUSINESS_ID, oneDayAgo, now);
-  const recentEvents = await getMessageEvents(db, BUSINESS_ID, { limit: 5 });
+  const recentEvents = await getMessageEvents(db, BUSINESS_ID, { limit: 10 });
   const intentBreakdown = await getIntentBreakdown(db, BUSINESS_ID, oneDayAgo, now);
   const leadFunnel = await getLeadFunnelMetrics(db, BUSINESS_ID);
   const topSearches = await getTopSearchQueries(db, BUSINESS_ID, oneDayAgo, now);
 
   const totalLeads = Object.values(leadFunnel).reduce((a, b) => a + b, 0);
 
+  // Calculate response time in seconds for display
+  const responseTimeSeconds = stats.avgProcessingTime > 0
+    ? stats.avgProcessingTime / 1000
+    : 0;
+
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        <p className="text-muted-foreground">
-          Analytics for the last 24 hours
-        </p>
-      </div>
+      <BlurFade delay={0}>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+          <p className="text-muted-foreground">
+            Analytics for the last 24 hours
+          </p>
+        </div>
+      </BlurFade>
 
       {/* Stats cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Messages</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalMessages.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              <span className="text-chart-2 inline-flex items-center">
-                <TrendingUp className="mr-1 h-3 w-3" />
-                Live data
-              </span>
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Unique Leads</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.uniqueLeads}</div>
-            <p className="text-xs text-muted-foreground">
-              Active conversations
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Response Time</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {stats.avgProcessingTime > 0
-                ? `${(stats.avgProcessingTime / 1000).toFixed(1)}s`
-                : "N/A"}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Processing time per message
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Handoff Rate</CardTitle>
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.handoffRate}%</div>
-            <p className="text-xs text-muted-foreground">
-              Escalated to human
-            </p>
-          </CardContent>
-        </Card>
+        <StatsCard
+          title="Total Messages"
+          value={stats.totalMessages}
+          description="Live data"
+          iconName="message-square"
+          delay={0.05}
+        />
+        <StatsCard
+          title="Unique Leads"
+          value={stats.uniqueLeads}
+          description="Active conversations"
+          iconName="users"
+          delay={0.1}
+        />
+        <StatsCard
+          title="Avg Response Time"
+          value={responseTimeSeconds}
+          suffix="s"
+          description="Processing time per message"
+          iconName="clock"
+          delay={0.15}
+          decimalPlaces={1}
+        />
+        <StatsCard
+          title="Handoff Rate"
+          value={stats.handoffRate}
+          suffix="%"
+          description="Escalated to human"
+          iconName="alert-circle"
+          delay={0.2}
+        />
       </div>
 
       {/* Action breakdown and recent activity */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Action breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Action Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {(Object.entries(stats.actionBreakdown) as [ResponseAction, number][])
-                .filter(([, count]) => count > 0)
-                .sort(([, a], [, b]) => b - a)
-                .map(([action, count]) => {
-                  const percentage = stats.totalMessages > 0
-                    ? Math.round((count / stats.totalMessages) * 100)
-                    : 0;
-                  return (
-                    <div key={action} className="flex items-center gap-3">
+        <AnimatedSection title="Action Breakdown" delay={0.25}>
+          <div className="space-y-3">
+            {(Object.entries(stats.actionBreakdown) as [ResponseAction, number][])
+              .filter(([, count]) => count > 0)
+              .sort(([, a], [, b]) => b - a)
+              .map(([action, count], index) => {
+                const percentage = stats.totalMessages > 0
+                  ? Math.round((count / stats.totalMessages) * 100)
+                  : 0;
+                return (
+                  <BlurFade key={action} delay={0.3 + index * 0.05} direction="left">
+                    <div className="flex items-center gap-3">
                       <Badge variant="secondary" className={getActionColor(action)}>
                         {action.replace(/_/g, " ")}
                       </Badge>
                       <div className="flex-1">
                         <div className="h-2 rounded-full bg-muted overflow-hidden">
                           <div
-                            className="h-full bg-primary transition-all"
+                            className="h-full bg-primary transition-all duration-500"
                             style={{ width: `${percentage}%` }}
                           />
                         </div>
@@ -177,47 +150,36 @@ export default async function DashboardPage() {
                         {count}
                       </span>
                     </div>
-                  );
-                })}
-              {stats.totalMessages === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No activity in the last 24 hours
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                  </BlurFade>
+                );
+              })}
+            {stats.totalMessages === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No activity in the last 24 hours
+              </p>
+            )}
+          </div>
+        </AnimatedSection>
 
         {/* Recent activity */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Recent Activity</CardTitle>
-            <Link
-              href="/conversations"
-              className="text-sm text-primary hover:underline inline-flex items-center"
-            >
-              View all
-              <ArrowUpRight className="ml-1 h-3 w-3" />
-            </Link>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+        <AnimatedSection
+          title="Recent Activity"
+          delay={0.3}
+          href="/conversations"
+          linkText="View all"
+        >
+          <ScrollArea className="h-[280px] -mx-1 px-1">
+            <div className="space-y-1">
               {recentEvents.events.length > 0 ? (
-                recentEvents.events.map((event) => (
-                  <div
+                recentEvents.events.map((event, index) => (
+                  <ActivityItem
                     key={event.id}
-                    className="flex items-center justify-between py-2 border-b border-border last:border-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-mono">{maskPhone(event.lead_id)}</span>
-                      <Badge variant="secondary" className={getActionColor(event.action)}>
-                        {event.action.replace(/_/g, " ")}
-                      </Badge>
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {formatTimeAgo(event.timestamp)}
-                    </span>
-                  </div>
+                    phone={maskPhone(event.lead_id)}
+                    action={event.action}
+                    timeAgo={formatTimeAgo(event.timestamp)}
+                    leadId={event.lead_id}
+                    delay={0.35 + index * 0.03}
+                  />
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-4">
@@ -225,62 +187,49 @@ export default async function DashboardPage() {
                 </p>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </ScrollArea>
+        </AnimatedSection>
       </div>
 
       {/* Per-tenant analytics widgets */}
       <div className="grid gap-4 md:grid-cols-3">
         {/* Lead Funnel */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Lead Funnel</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {[
-                { status: "new", label: "New", color: "bg-slate-400" },
-                { status: "engaged", label: "Engaged", color: "bg-chart-5" },
-                { status: "warm", label: "Warm", color: "bg-chart-3" },
-                { status: "hot", label: "Hot", color: "bg-chart-4" },
-                { status: "converted", label: "Converted", color: "bg-chart-2" },
-              ].map(({ status, label, color }) => {
-                const count = leadFunnel[status] || 0;
-                const percentage = totalLeads > 0 ? Math.round((count / totalLeads) * 100) : 0;
-                return (
-                  <div key={status} className="flex items-center gap-2">
-                    <span className="text-xs w-20">{label}</span>
-                    <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
-                      <div
-                        className={`h-full ${color} transition-all`}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-muted-foreground w-8 text-right">
-                      {count}
-                    </span>
-                  </div>
-                );
-              })}
-              {totalLeads === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-2">
-                  No leads yet
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <AnimatedSection title="Lead Funnel" delay={0.4}>
+          <div className="space-y-2">
+            {[
+              { status: "new", label: "New", color: "bg-slate-400" },
+              { status: "engaged", label: "Engaged", color: "bg-chart-5" },
+              { status: "warm", label: "Warm", color: "bg-chart-3" },
+              { status: "hot", label: "Hot", color: "bg-chart-4" },
+              { status: "converted", label: "Converted", color: "bg-chart-2" },
+            ].map(({ status, label, color }, index) => {
+              const count = leadFunnel[status] || 0;
+              return (
+                <AnimatedProgress
+                  key={status}
+                  value={count}
+                  max={totalLeads}
+                  label={label}
+                  color={color}
+                  delay={0.45 + index * 0.05}
+                />
+              );
+            })}
+            {totalLeads === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                No leads yet
+              </p>
+            )}
+          </div>
+        </AnimatedSection>
 
         {/* Intent Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Customer Intents</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {intentBreakdown.length > 0 ? (
-                intentBreakdown.slice(0, 6).map((item) => (
-                  <div key={item.intent_type} className="flex items-center justify-between">
+        <AnimatedSection title="Customer Intents" delay={0.5}>
+          <div className="space-y-2">
+            {intentBreakdown.length > 0 ? (
+              intentBreakdown.slice(0, 6).map((item, index) => (
+                <BlurFade key={item.intent_type} delay={0.55 + index * 0.04} direction="left">
+                  <div className="flex items-center justify-between hover:bg-muted/30 rounded px-2 py-1 -mx-2 transition-colors">
                     <span className="text-sm truncate flex-1">
                       {item.intent_type.replace(/_/g, " ")}
                     </span>
@@ -288,39 +237,36 @@ export default async function DashboardPage() {
                       {item.count}
                     </Badge>
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No intent data yet
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                </BlurFade>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No intent data yet
+              </p>
+            )}
+          </div>
+        </AnimatedSection>
 
         {/* Top Searches */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Top Product Searches</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {topSearches.length > 0 ? (
-                topSearches.slice(0, 6).map((item, index) => (
-                  <div key={item.search_query} className="flex items-center gap-2">
+        <AnimatedSection title="Top Product Searches" delay={0.6}>
+          <div className="space-y-2">
+            {topSearches.length > 0 ? (
+              topSearches.slice(0, 6).map((item, index) => (
+                <BlurFade key={item.search_query} delay={0.65 + index * 0.04} direction="left">
+                  <div className="flex items-center gap-2 hover:bg-muted/30 rounded px-2 py-1 -mx-2 transition-colors">
                     <span className="text-xs text-muted-foreground w-4">{index + 1}.</span>
                     <span className="text-sm truncate flex-1">{item.search_query}</span>
                     <span className="text-xs text-muted-foreground">{item.count}x</span>
                   </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No search data yet
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+                </BlurFade>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No search data yet
+              </p>
+            )}
+          </div>
+        </AnimatedSection>
       </div>
     </div>
   );
