@@ -19,6 +19,7 @@ import {
 import { isAudioMessage } from './whatsapp/types';
 import {
   sendTextMessage,
+  sendImageMessage,
   markAsRead,
   simulateTypingDelay,
   splitMessage
@@ -495,6 +496,27 @@ async function processMessage(
     // Small delay between multiple messages
     if (messageParts.length > 1) {
       await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  // Send product images if requested by LLM decision
+  if (response.imagesToSend && response.imagesToSend.length > 0) {
+    console.log(`📸 Sending ${response.imagesToSend.length} product image(s)`);
+    for (const image of response.imagesToSend) {
+      try {
+        await sendImageMessage(
+          message.businessPhoneNumberId,
+          env.WHATSAPP_ACCESS_TOKEN,
+          message.from,
+          image.url,
+          image.caption
+        );
+        // Small delay between images
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } catch (error) {
+        console.error('Failed to send product image:', error);
+        // Continue with other images even if one fails
+      }
     }
   }
 

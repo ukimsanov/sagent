@@ -75,6 +75,7 @@ export function calculateScoreDelta(ctx: ScoringContext): ScoreUpdate {
     greet: 0, // Just starting
     thank: 2, // Positive ending
     handoff: 2, // Needs more help
+    farewell: 1, // Conversation ended positively
   };
 
   if (ctx.action) {

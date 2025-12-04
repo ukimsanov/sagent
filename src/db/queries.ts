@@ -841,7 +841,8 @@ export type ResponseAction =
   | 'empathize'
   | 'greet'
   | 'thank'
-  | 'handoff';
+  | 'handoff'
+  | 'farewell';
 
 export interface MessageEvent {
   id: string;
@@ -1056,7 +1057,8 @@ export async function getAnalyticsSummary(
     empathize: 0,
     greet: 0,
     thank: 0,
-    handoff: 0
+    handoff: 0,
+    farewell: 0
   };
 
   for (const row of actionResult.results || []) {
