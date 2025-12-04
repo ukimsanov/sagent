@@ -167,10 +167,11 @@ function detectComplaint(lower: string, original: string): Intent | null {
 
 function detectSizingHelp(text: string): string | null {
   const sizingPatterns = [
-    /\b(what size|which size|size (chart|guide)|sizing|fit|runs (big|small|large|tight))\b/,
+    /\b(what sizes?|which sizes?|size (chart|guide)|sizing|fit|runs (big|small|large|tight))\b/,
     /\b(too (big|small|tight|loose)|doesn'?t fit)\b/,
     /\b(should i (get|order)|recommend.* size)\b/,
     /\b(measurements|dimensions|length|width)\b/,
+    /\bcome in\b.*\b(sizes?|colors?)\b/,  // "What does it come in?" patterns
   ];
 
   if (sizingPatterns.some(p => p.test(text))) {
