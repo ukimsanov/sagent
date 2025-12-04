@@ -101,8 +101,14 @@ export async function executeDecision(
   // =========================================================================
   // 0-PRODUCTS HANDLING: LLM decides action, code builds message from DB data
   // This prevents hallucination about inventory we don't have.
+  //
+  // IMPORTANT: Only apply to product-related actions (show_products, ask_clarification).
+  // Do NOT override empathize, handoff, greet, thank, farewell - these are not about products.
   // =========================================================================
-  if (ctx.products.length === 0 && ctx.searchQuery) {
+  const productRelatedActions = ['show_products', 'ask_clarification', 'answer_question'];
+  const isProductRelatedAction = productRelatedActions.includes(decision.conversation_action);
+
+  if (ctx.products.length === 0 && ctx.searchQuery && isProductRelatedAction) {
     console.log('🛡️ 0-products case: building message from verified DB data');
 
     // Override show_products to ask_clarification (can't show what we don't have)
@@ -122,6 +128,9 @@ export async function executeDecision(
 
     modifiedDecision.message = safeMessage;
     console.log('🛡️ Safe message built from DB categories');
+  } else if (ctx.products.length === 0 && ctx.searchQuery) {
+    // Non-product actions (empathize, handoff, greet, etc.) - trust LLM's message
+    console.log(`📝 0-products but action is ${decision.conversation_action} - trusting LLM message`);
   }
 
   // Process each business action
