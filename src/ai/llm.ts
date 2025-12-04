@@ -209,8 +209,9 @@ export async function callLLMForDecision(
             strict: true
           }
         },
-        // GPT-5-mini uses reasoning tokens - need enough for reasoning + JSON output
-        max_output_tokens: 4096,
+        // GPT-5-mini uses reasoning tokens - 512 is enough for structured JSON + short message
+        // Measured: ~381 tokens typical output (reasoning tokens are separate, not counted here)
+        max_output_tokens: 512,
         // Use minimal reasoning to reduce token usage and latency for simple tasks
         reasoning: {
           effort: 'low'
