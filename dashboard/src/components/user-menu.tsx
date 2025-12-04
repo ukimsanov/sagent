@@ -66,20 +66,20 @@ export function UserMenu({ user }: UserMenuProps) {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/settings" className="flex items-center cursor-pointer">
+          <Link href="/settings" prefetch={false} className="flex items-center cursor-pointer">
             <Settings className="mr-2 h-4 w-4" />
             <span>Settings</span>
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/account" className="flex items-center cursor-pointer">
+          <Link href="/account" prefetch={false} className="flex items-center cursor-pointer">
             <UserIcon className="mr-2 h-4 w-4" />
             <span>Account</span>
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/auth/logout" className="flex items-center cursor-pointer text-destructive">
+          <Link href="/auth/logout" prefetch={false} className="flex items-center cursor-pointer text-destructive">
             <LogOut className="mr-2 h-4 w-4" />
             <span>Log out</span>
           </Link>
