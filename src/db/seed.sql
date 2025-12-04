@@ -2,7 +2,11 @@
 -- Run with: wrangler d1 execute whatsapp-ai-agent-db --local --file=./src/db/seed.sql
 
 -- Demo clothing store
-INSERT OR REPLACE INTO businesses (id, name, whatsapp_phone_id, system_prompt, working_hours, timezone, language)
+INSERT OR REPLACE INTO businesses (
+  id, name, whatsapp_phone_id, system_prompt, working_hours, timezone, language,
+  brand_tone, greeting_template, escalation_keywords, after_hours_message,
+  handoff_email, handoff_phone, auto_handoff_threshold
+)
 VALUES (
   'demo-store-001',
   'StyleHub Fashion',
@@ -10,7 +14,14 @@ VALUES (
   'You are a friendly sales assistant for StyleHub Fashion, an online clothing store. You help customers find the perfect clothes, check availability, and answer questions about our products. Be helpful, concise, and personable. If a customer seems ready to buy, guide them to complete the purchase. If they have complex issues or complaints, flag for human follow-up.',
   '{"mon": "9-21", "tue": "9-21", "wed": "9-21", "thu": "9-21", "fri": "9-21", "sat": "10-20", "sun": "10-18"}',
   'UTC',
-  'en'
+  'en',
+  'friendly',
+  NULL, -- Use default greeting
+  '["lawyer", "sue", "refund", "scam", "fraud", "police", "report"]',
+  'Hey! Thanks for reaching out. Our team is currently offline but we''ll get back to you first thing in the morning. Feel free to browse our catalog in the meantime!',
+  'support@stylehub.demo',
+  NULL,
+  3
 );
 
 -- Demo products - T-Shirts

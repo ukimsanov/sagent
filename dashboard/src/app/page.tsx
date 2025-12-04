@@ -9,7 +9,15 @@ import {
   TrendingUp,
   ArrowUpRight,
 } from "lucide-react";
-import { getDB, getAnalyticsSummary, getMessageEvents, ResponseAction } from "@/lib/db";
+import {
+  getDB,
+  getAnalyticsSummary,
+  getMessageEvents,
+  getIntentBreakdown,
+  getLeadFunnelMetrics,
+  getTopSearchQueries,
+  ResponseAction
+} from "@/lib/db";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
@@ -58,6 +66,11 @@ export default async function DashboardPage() {
 
   const stats = await getAnalyticsSummary(db, BUSINESS_ID, oneDayAgo, now);
   const recentEvents = await getMessageEvents(db, BUSINESS_ID, { limit: 5 });
+  const intentBreakdown = await getIntentBreakdown(db, BUSINESS_ID, oneDayAgo, now);
+  const leadFunnel = await getLeadFunnelMetrics(db, BUSINESS_ID);
+  const topSearches = await getTopSearchQueries(db, BUSINESS_ID, oneDayAgo, now);
+
+  const totalLeads = Object.values(leadFunnel).reduce((a, b) => a + b, 0);
 
   return (
     <div className="space-y-6">
@@ -209,6 +222,100 @@ export default async function DashboardPage() {
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No recent activity
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Per-tenant analytics widgets */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Lead Funnel */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Lead Funnel</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {[
+                { status: "new", label: "New", color: "bg-slate-400" },
+                { status: "engaged", label: "Engaged", color: "bg-chart-5" },
+                { status: "warm", label: "Warm", color: "bg-chart-3" },
+                { status: "hot", label: "Hot", color: "bg-chart-4" },
+                { status: "converted", label: "Converted", color: "bg-chart-2" },
+              ].map(({ status, label, color }) => {
+                const count = leadFunnel[status] || 0;
+                const percentage = totalLeads > 0 ? Math.round((count / totalLeads) * 100) : 0;
+                return (
+                  <div key={status} className="flex items-center gap-2">
+                    <span className="text-xs w-20">{label}</span>
+                    <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
+                      <div
+                        className={`h-full ${color} transition-all`}
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground w-8 text-right">
+                      {count}
+                    </span>
+                  </div>
+                );
+              })}
+              {totalLeads === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  No leads yet
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Intent Breakdown */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Customer Intents</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {intentBreakdown.length > 0 ? (
+                intentBreakdown.slice(0, 6).map((item) => (
+                  <div key={item.intent_type} className="flex items-center justify-between">
+                    <span className="text-sm truncate flex-1">
+                      {item.intent_type.replace(/_/g, " ")}
+                    </span>
+                    <Badge variant="outline" className="ml-2">
+                      {item.count}
+                    </Badge>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No intent data yet
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Top Searches */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Top Product Searches</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {topSearches.length > 0 ? (
+                topSearches.slice(0, 6).map((item, index) => (
+                  <div key={item.search_query} className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-4">{index + 1}.</span>
+                    <span className="text-sm truncate flex-1">{item.search_query}</span>
+                    <span className="text-xs text-muted-foreground">{item.count}x</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No search data yet
                 </p>
               )}
             </div>

@@ -57,6 +57,16 @@ export interface Business {
   id: string;
   name: string;
   whatsapp_phone_id: string;
+  // Phase 4: B2B tenant config
+  brand_tone: 'friendly' | 'professional' | 'casual' | null;
+  greeting_template: string | null;
+  escalation_keywords: string | null;
+  after_hours_message: string | null;
+  handoff_email: string | null;
+  handoff_phone: string | null;
+  auto_handoff_threshold: number | null;
+  working_hours: string | null;
+  timezone: string | null;
 }
 
 /**
@@ -268,4 +278,193 @@ export async function getBusinesses(db: D1Database) {
     .all<Business>();
 
   return result.results || [];
+}
+
+/**
+ * Get a business by ID with full config
+ */
+export async function getBusinessById(db: D1Database, businessId: string) {
+  const result = await db
+    .prepare('SELECT * FROM businesses WHERE id = ?')
+    .bind(businessId)
+    .first<Business>();
+
+  return result;
+}
+
+/**
+ * Get intent type breakdown for analytics
+ */
+export async function getIntentBreakdown(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+) {
+  const result = await db
+    .prepare(`
+      SELECT intent_type, COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND intent_type IS NOT NULL
+      GROUP BY intent_type
+      ORDER BY count DESC
+      LIMIT 10
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<{ intent_type: string; count: number }>();
+
+  return result.results || [];
+}
+
+/**
+ * Get lead funnel metrics
+ */
+export async function getLeadFunnelMetrics(
+  db: D1Database,
+  businessId: string
+) {
+  const result = await db
+    .prepare(`
+      SELECT status, COUNT(*) as count
+      FROM leads
+      WHERE business_id = ?
+      GROUP BY status
+    `)
+    .bind(businessId)
+    .all<{ status: string; count: number }>();
+
+  const funnel: Record<string, number> = {
+    new: 0,
+    engaged: 0,
+    warm: 0,
+    hot: 0,
+    converted: 0,
+    lost: 0,
+  };
+
+  for (const row of result.results || []) {
+    funnel[row.status] = row.count;
+  }
+
+  return funnel;
+}
+
+/**
+ * Get top search queries/product interests
+ */
+export async function getTopSearchQueries(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+) {
+  const result = await db
+    .prepare(`
+      SELECT search_query, COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND search_query IS NOT NULL AND search_query != ''
+      GROUP BY search_query
+      ORDER BY count DESC
+      LIMIT 10
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<{ search_query: string; count: number }>();
+
+  return result.results || [];
+}
+
+/**
+ * Get escalation/handoff reasons
+ */
+export async function getHandoffReasons(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+) {
+  const result = await db
+    .prepare(`
+      SELECT intent_type, COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND (action = 'handoff' OR action = 'empathize' OR flagged_for_human = 1)
+        AND intent_type IS NOT NULL
+      GROUP BY intent_type
+      ORDER BY count DESC
+      LIMIT 5
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<{ intent_type: string; count: number }>();
+
+  return result.results || [];
+}
+
+/**
+ * Update business config
+ */
+export async function updateBusinessConfig(
+  db: D1Database,
+  businessId: string,
+  config: {
+    brand_tone?: string;
+    greeting_template?: string | null;
+    escalation_keywords?: string | null;
+    after_hours_message?: string | null;
+    handoff_email?: string | null;
+    handoff_phone?: string | null;
+    auto_handoff_threshold?: number;
+    working_hours?: string | null;
+    timezone?: string | null;
+  }
+) {
+  const updates: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  if (config.brand_tone !== undefined) {
+    updates.push('brand_tone = ?');
+    values.push(config.brand_tone);
+  }
+  if (config.greeting_template !== undefined) {
+    updates.push('greeting_template = ?');
+    values.push(config.greeting_template);
+  }
+  if (config.escalation_keywords !== undefined) {
+    updates.push('escalation_keywords = ?');
+    values.push(config.escalation_keywords);
+  }
+  if (config.after_hours_message !== undefined) {
+    updates.push('after_hours_message = ?');
+    values.push(config.after_hours_message);
+  }
+  if (config.handoff_email !== undefined) {
+    updates.push('handoff_email = ?');
+    values.push(config.handoff_email);
+  }
+  if (config.handoff_phone !== undefined) {
+    updates.push('handoff_phone = ?');
+    values.push(config.handoff_phone);
+  }
+  if (config.auto_handoff_threshold !== undefined) {
+    updates.push('auto_handoff_threshold = ?');
+    values.push(config.auto_handoff_threshold);
+  }
+  if (config.working_hours !== undefined) {
+    updates.push('working_hours = ?');
+    values.push(config.working_hours);
+  }
+  if (config.timezone !== undefined) {
+    updates.push('timezone = ?');
+    values.push(config.timezone);
+  }
+
+  if (updates.length === 0) return;
+
+  values.push(businessId);
+
+  await db
+    .prepare(`UPDATE businesses SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...values)
+    .run();
 }

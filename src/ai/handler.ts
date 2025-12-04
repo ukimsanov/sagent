@@ -13,7 +13,15 @@
  * - Predictable responses, no timeouts
  */
 
-import { searchProducts, getAllCategories, createHumanFlag } from '../db/queries';
+import {
+  searchProducts,
+  getAllCategories,
+  createHumanFlag,
+  getBusinessConfig,
+  isWithinBusinessHours,
+  containsEscalationKeyword,
+  type BusinessConfig
+} from '../db/queries';
 import type { Business, Lead, ProductWithMetadata, ConversationSummary } from '../db/queries';
 import {
   classifyIntent,
@@ -69,14 +77,46 @@ type ResponseAction =
  * Worker calls this instead of the tool-calling agent.
  */
 export async function handleIncomingMessage(ctx: HandlerContext): Promise<HandlerResponse> {
+  // Get tenant config
+  const config = getBusinessConfig(ctx.business);
+  console.log('⚙️ Business config loaded:', {
+    brandTone: config.brandTone,
+    autoHandoffThreshold: config.autoHandoffThreshold,
+    hasEscalationKeywords: config.escalationKeywords.length > 0
+  });
+
+  // Phase 4: Check for escalation keywords FIRST → immediate handoff (even outside hours)
+  if (containsEscalationKeyword(ctx.messageText, config.escalationKeywords)) {
+    console.log('🚨 Escalation keyword detected - immediate handoff');
+    await createHumanFlag(ctx.db, ctx.lead.id, 'high', `Escalation keyword in: ${ctx.messageText.substring(0, 100)}`);
+    return {
+      message: handleEscalationHandoff(ctx),
+      action: 'handoff',
+      flaggedForHuman: true,
+      intentType: 'escalation_keyword'
+    };
+  }
+
+  // Phase 4: Check store hours - return after-hours message if closed
+  const hoursCheck = isWithinBusinessHours(ctx.business);
+  if (!hoursCheck.isOpen && config.afterHoursMessage) {
+    console.log('🕐 Outside business hours - sending after-hours message');
+    return {
+      message: config.afterHoursMessage,
+      action: 'answer_question',
+      flaggedForHuman: false,
+      intentType: 'after_hours'
+    };
+  }
+
   // Build conversation context for intent classification
   const convContext: ConversationContext = {
     history: ctx.conversationHistory,
     recentClarifications: countRecentClarifications(ctx.conversationHistory)
   };
 
-  // Check for auto-handoff conditions
-  if (shouldAutoHandoff(convContext)) {
+  // Check for auto-handoff conditions (use tenant config threshold)
+  if (convContext.recentClarifications >= config.autoHandoffThreshold || shouldAutoHandoff(convContext)) {
     console.log('🚨 Auto-handoff triggered: too many clarifications or repeated messages');
     await createHumanFlag(ctx.db, ctx.lead.id, 'medium', 'Auto-handoff: conversation stuck');
     return {
@@ -165,6 +205,19 @@ function countRecentClarifications(history: Array<{ role: string; content: strin
 function handleGreeting(ctx: HandlerContext): string {
   const name = ctx.lead.name;
   const businessName = ctx.business.name;
+  const config = getBusinessConfig(ctx.business);
+
+  // Use custom greeting template if available
+  if (config.greetingTemplate) {
+    // Replace {{name}} placeholder if present
+    let greeting = config.greetingTemplate;
+    if (name) {
+      greeting = greeting.replace(/\{\{name\}\}/gi, name);
+    } else {
+      greeting = greeting.replace(/\{\{name\}\},?\s*/gi, '');
+    }
+    return greeting;
+  }
 
   // Check if returning customer
   const daysSinceLastContact = Math.floor((Date.now() / 1000 - ctx.lead.last_contact) / 86400);
@@ -206,6 +259,14 @@ function handleAutoHandoff(ctx: HandlerContext): string {
     return `${name}, ${base} ${action}`;
   }
   return `${base} ${action}`;
+}
+
+function handleEscalationHandoff(ctx: HandlerContext): string {
+  const name = ctx.lead.name;
+  if (name) {
+    return `${name}, I understand this is important. Let me get someone from our team to help you right away.`;
+  }
+  return "I understand this is important. Let me get someone from our team to help you right away.";
 }
 
 function handleOrderStatus(ctx: HandlerContext, clarificationCount: number): HandlerResponse {
@@ -564,17 +625,33 @@ function buildNoProductsTemplate(query: string, categories: string[]): string {
 
 /**
  * Build system prompt with persona, tone, and conversation logic.
+ * Uses tenant brand_tone config to adjust personality.
  */
 function buildSystemPrompt(ctx: HandlerContext): string {
   const name = ctx.lead.name;
   const greeting = name ? `You're chatting with ${name}.` : '';
+  const config = getBusinessConfig(ctx.business);
+
+  // Tone-specific personality based on brand_tone config
+  const tonePersonality = {
+    friendly: `- Friendly, relaxed, confident - like a helpful store employee
+- Natural language: "yeah", "sure", "got it" when appropriate
+- Warm and approachable, use casual phrasing`,
+    professional: `- Professional, courteous, and knowledgeable
+- Clear and precise language, avoid slang
+- Helpful but maintain a business-appropriate tone`,
+    casual: `- Super chill and laid-back, like a friend helping out
+- Use informal language: "hey", "cool", "awesome"
+- Keep it fun and conversational`
+  };
+
+  const personality = tonePersonality[config.brandTone] || tonePersonality.friendly;
 
   return `You are a WhatsApp sales assistant for ${ctx.business.name}. ${greeting}
 
 PERSONALITY
-- Friendly, relaxed, confident - like a helpful store employee
+${personality}
 - Short messages: 2-4 sentences max
-- Natural language: "yeah", "sure", "got it" when appropriate
 - Never say you're an AI or bot
 - Use their name occasionally but not every message
 

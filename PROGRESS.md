@@ -56,21 +56,44 @@ WhatsApp Cloud API → Cloudflare Worker → Code-First Handler → Response
 - Vague query detection with smart clarifying questions
 - Structured response tracking (`action` field for analytics)
 
-### 🔲 Phase 3: Intelligence & Structure (NEXT)
+### ✅ Phase 3: Intelligence & Structure (DONE - December 2025)
 
-**Planned:**
-- [ ] Add `action` logging for analytics
-- [ ] Implement soft rules (3 clarifications → auto-handoff) - DONE in code
-- [ ] Build simple internal dashboard (list of convos, tags, metrics)
-- [ ] Test all conversation flows
+**Completed:**
+- [x] Add `action` logging for analytics (`message_events` table)
+- [x] Implement soft rules (3 clarifications → auto-handoff)
+- [x] Build internal dashboard (Next.js 15 + OpenNext for Cloudflare)
+  - Leads list with scores and status
+  - Conversation detail view with full message history
+  - Real-time data from D1 database
+- [x] Test all 10 conversation flows
+- [x] Fixed sizing_help regex bug (singular → plural support)
 
-### 🔲 Phase 4: B2B Features
+### ✅ Phase 4: B2B Features (DONE - December 2025)
 
-**Planned:**
-- [ ] Tenant-aware config (brand voice, escalation rules, store hours)
-- [ ] Basic admin UI
-- [ ] Human handoff routing to merchant's team
-- [ ] Per-tenant analytics
+**Completed:**
+- [x] Tenant-aware config (brand voice, escalation rules, store hours)
+  - Added `brand_tone`, `greeting_template`, `escalation_keywords` columns
+  - Added `after_hours_message`, `handoff_email`, `handoff_phone` columns
+  - Added `auto_handoff_threshold`, `working_hours`, `timezone` columns
+  - Created migration file: `src/db/migrations/001_tenant_config.sql`
+- [x] Handler integration with tenant config
+  - Escalation keyword detection (immediate handoff)
+  - Store hours check with after-hours message
+  - Custom greeting templates with `{{name}}` placeholder
+  - Brand tone affects LLM personality (friendly/professional/casual)
+- [x] Human handoff routing to merchant's team
+  - Email notifications via Resend API
+  - Includes customer details, recent messages, dashboard link
+  - Non-blocking background processing
+- [x] Dashboard settings page
+  - Brand Voice section (tone, greeting template)
+  - Handoff settings (email, phone, threshold, escalation keywords)
+  - Store Hours settings (timezone, working hours JSON, after-hours message)
+  - Real-time save with API route
+- [x] Per-tenant analytics widgets
+  - Lead funnel visualization (new → engaged → warm → hot → converted)
+  - Customer intent breakdown (top intents by count)
+  - Top product searches (ranked by frequency)
 
 ### 🔲 Phase 5: Scale & Polish
 
@@ -220,4 +243,4 @@ After full implementation:
 
 ## Last Updated
 
-December 2025 - Phase 2 Complete
+December 2025 - Phase 4 Complete

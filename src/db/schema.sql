@@ -12,6 +12,16 @@ CREATE TABLE IF NOT EXISTS businesses (
   language TEXT DEFAULT 'en',
   address TEXT, -- Physical store address for store_visit goal
   goals TEXT, -- JSON array: ["store_visit", "lead_capture", "appointment", ...]
+
+  -- Phase 4: B2B tenant config
+  brand_tone TEXT DEFAULT 'friendly', -- 'friendly', 'professional', 'casual'
+  greeting_template TEXT, -- Custom greeting message (replaces default)
+  escalation_keywords TEXT, -- JSON array of keywords that trigger handoff
+  after_hours_message TEXT, -- Custom message outside working_hours
+  handoff_email TEXT, -- Email to notify on handoff
+  handoff_phone TEXT, -- Phone to notify on handoff (optional)
+  auto_handoff_threshold INTEGER DEFAULT 3, -- Clarifications before auto-handoff
+
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch())
 );

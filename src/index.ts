@@ -26,6 +26,7 @@ import {
 import { handleIncomingMessage as handleMessage } from './ai/handler';
 import { buildIncrementalSummaryPrompt } from './ai/prompts';
 import { transcribeAudioMessage } from './ai/transcription';
+import { sendHandoffNotification } from './notifications/handoff';
 import * as db from './db/queries';
 import {
   getConversation,
@@ -51,6 +52,10 @@ interface Env {
   OPENAI_API_KEY: string;
   WHATSAPP_ACCESS_TOKEN: string;
   WHATSAPP_APP_SECRET?: string; // Optional - enables webhook signature validation
+
+  // Phase 4: Handoff notifications
+  RESEND_API_KEY?: string; // Optional - enables email notifications via Resend
+  WORKER_URL?: string; // Optional - base URL for dashboard links in emails
 }
 
 // ============================================================================
@@ -403,6 +408,31 @@ async function processMessage(
   } catch (error) {
     // Don't fail the message handling if analytics logging fails
     console.error('Failed to log message event:', error);
+  }
+
+  // Phase 4: Send handoff notification if flagged
+  if (response.flaggedForHuman) {
+    // Use waitUntil to send notification in background (don't block response)
+    ctx.waitUntil(
+      sendHandoffNotification(
+        {
+          business,
+          lead,
+          reason: response.intentType || 'Unknown reason',
+          urgency: response.action === 'empathize' ? 'high' : 'medium',
+          recentMessages: formatMessagesForLLM(conversation).slice(-5) as Array<{ role: 'user' | 'assistant'; content: string }>,
+          conversationSummary,
+          dashboardUrl: env.WORKER_URL?.replace('/webhook', '') || undefined
+        },
+        env.RESEND_API_KEY
+      ).then(result => {
+        if (result.success) {
+          console.log('📧 Handoff notification sent:', result.messageId);
+        } else {
+          console.log('📧 Handoff notification skipped:', result.error);
+        }
+      })
+    );
   }
 
   // Add a small delay to seem more human

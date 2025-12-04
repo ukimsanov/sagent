@@ -15,6 +15,8 @@ export type GoalType =
   | 'online_order'     // Ready to buy online → flag for human
   | 'promo_delivery';  // Send discount code
 
+export type BrandTone = 'friendly' | 'professional' | 'casual';
+
 export interface Business {
   id: string;
   name: string;
@@ -25,6 +27,16 @@ export interface Business {
   language: string;
   address: string | null;
   goals: string | null; // JSON array of GoalType
+
+  // Phase 4: B2B tenant config
+  brand_tone: BrandTone;
+  greeting_template: string | null;
+  escalation_keywords: string | null; // JSON array
+  after_hours_message: string | null;
+  handoff_email: string | null;
+  handoff_phone: string | null;
+  auto_handoff_threshold: number;
+
   created_at: number;
   updated_at: number;
 }
@@ -461,6 +473,193 @@ export function parseBusinessGoals(business: Business): GoalType[] {
   } catch {
     return [];
   }
+}
+
+// ============================================================================
+// Phase 4: Tenant Config Helpers
+// ============================================================================
+
+export interface BusinessConfig {
+  brandTone: BrandTone;
+  greetingTemplate: string | null;
+  escalationKeywords: string[];
+  afterHoursMessage: string | null;
+  handoffEmail: string | null;
+  handoffPhone: string | null;
+  autoHandoffThreshold: number;
+  workingHours: Record<string, string> | null;
+  timezone: string;
+}
+
+/**
+ * Parse escalation keywords from JSON string
+ */
+export function parseEscalationKeywords(business: Business): string[] {
+  if (!business.escalation_keywords) return [];
+  try {
+    const parsed = JSON.parse(business.escalation_keywords);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Parse working hours from JSON string
+ */
+export function parseWorkingHours(business: Business): Record<string, string> | null {
+  if (!business.working_hours) return null;
+  try {
+    return JSON.parse(business.working_hours);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get business config with all parsed fields
+ */
+export function getBusinessConfig(business: Business): BusinessConfig {
+  return {
+    brandTone: business.brand_tone || 'friendly',
+    greetingTemplate: business.greeting_template,
+    escalationKeywords: parseEscalationKeywords(business),
+    afterHoursMessage: business.after_hours_message,
+    handoffEmail: business.handoff_email,
+    handoffPhone: business.handoff_phone,
+    autoHandoffThreshold: business.auto_handoff_threshold || 3,
+    workingHours: parseWorkingHours(business),
+    timezone: business.timezone || 'UTC',
+  };
+}
+
+/**
+ * Check if the current time is within business hours
+ * Returns: { isOpen: boolean, nextOpen?: string }
+ */
+export function isWithinBusinessHours(
+  business: Business,
+  currentTime?: Date
+): { isOpen: boolean; nextOpen?: string } {
+  const workingHours = parseWorkingHours(business);
+  if (!workingHours) {
+    // No working hours set = always open
+    return { isOpen: true };
+  }
+
+  const now = currentTime || new Date();
+
+  // Convert to business timezone
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: business.timezone || 'UTC',
+    weekday: 'short',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(now);
+  const dayPart = parts.find(p => p.type === 'weekday')?.value?.toLowerCase() || 'mon';
+  const hourPart = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+  const minutePart = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+  const currentMinutes = hourPart * 60 + minutePart;
+
+  const dayHours = workingHours[dayPart];
+  if (!dayHours) {
+    // Closed on this day
+    return { isOpen: false, nextOpen: 'tomorrow' };
+  }
+
+  // Parse hours like "9-21" or "10-18"
+  const [openStr, closeStr] = dayHours.split('-');
+  const openMinutes = parseInt(openStr, 10) * 60;
+  const closeMinutes = parseInt(closeStr, 10) * 60;
+
+  if (currentMinutes >= openMinutes && currentMinutes < closeMinutes) {
+    return { isOpen: true };
+  }
+
+  if (currentMinutes < openMinutes) {
+    return { isOpen: false, nextOpen: `at ${openStr}:00` };
+  }
+
+  return { isOpen: false, nextOpen: 'tomorrow' };
+}
+
+/**
+ * Check if a message contains any escalation keywords
+ */
+export function containsEscalationKeyword(
+  message: string,
+  keywords: string[]
+): boolean {
+  if (keywords.length === 0) return false;
+  const lower = message.toLowerCase();
+  return keywords.some(keyword => lower.includes(keyword.toLowerCase()));
+}
+
+/**
+ * Update business configuration (for dashboard settings page)
+ */
+export async function updateBusinessConfig(
+  db: D1Database,
+  businessId: string,
+  config: Partial<{
+    brand_tone: BrandTone;
+    greeting_template: string | null;
+    escalation_keywords: string[];
+    after_hours_message: string | null;
+    handoff_email: string | null;
+    handoff_phone: string | null;
+    auto_handoff_threshold: number;
+    working_hours: Record<string, string> | null;
+  }>
+): Promise<void> {
+  const updates: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  if (config.brand_tone !== undefined) {
+    updates.push('brand_tone = ?');
+    values.push(config.brand_tone);
+  }
+  if (config.greeting_template !== undefined) {
+    updates.push('greeting_template = ?');
+    values.push(config.greeting_template);
+  }
+  if (config.escalation_keywords !== undefined) {
+    updates.push('escalation_keywords = ?');
+    values.push(JSON.stringify(config.escalation_keywords));
+  }
+  if (config.after_hours_message !== undefined) {
+    updates.push('after_hours_message = ?');
+    values.push(config.after_hours_message);
+  }
+  if (config.handoff_email !== undefined) {
+    updates.push('handoff_email = ?');
+    values.push(config.handoff_email);
+  }
+  if (config.handoff_phone !== undefined) {
+    updates.push('handoff_phone = ?');
+    values.push(config.handoff_phone);
+  }
+  if (config.auto_handoff_threshold !== undefined) {
+    updates.push('auto_handoff_threshold = ?');
+    values.push(config.auto_handoff_threshold);
+  }
+  if (config.working_hours !== undefined) {
+    updates.push('working_hours = ?');
+    values.push(config.working_hours ? JSON.stringify(config.working_hours) : null);
+  }
+
+  if (updates.length === 0) return;
+
+  updates.push('updated_at = unixepoch()');
+  values.push(businessId);
+
+  await db
+    .prepare(`UPDATE businesses SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...values)
+    .run();
 }
 
 // ============================================================================
