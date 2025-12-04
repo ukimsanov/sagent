@@ -38,4 +38,5 @@
 	// - WHATSAPP_ACCESS_TOKEN
 	// - WHATSAPP_PHONE_NUMBER_ID
 	// - WHATSAPP_VERIFY_TOKEN
+	// - CLEANUP_SECRET (C2 security fix - cleanup endpoint auth)
 }

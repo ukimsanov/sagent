@@ -43,6 +43,7 @@ import {
 } from './utils/rate-limiter';
 import { updateLeadScoreInBackground } from './utils/lead-scoring';
 import { maskPhoneNumber, safeLog } from './utils/pii-masking';
+import { logToDeadLetter } from './db/dead-letter';
 
 // ============================================================================
 // Types
@@ -64,7 +65,16 @@ interface Env {
   // Phase 4: Handoff notifications
   RESEND_API_KEY?: string; // Optional - enables email notifications via Resend
   WORKER_URL?: string; // Optional - base URL for dashboard links in emails
+
+  // Phase 5: Security
+  CLEANUP_SECRET?: string; // Secret for cleanup endpoint (wrangler secret put CLEANUP_SECRET)
 }
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const MAX_MESSAGE_LENGTH = 4096; // WhatsApp limit
 
 // ============================================================================
 // Main Handler
@@ -131,8 +141,10 @@ async function handleCleanup(request: Request, env: Env): Promise<Response> {
     const whatsappNumber = body.whatsapp_number;
     const secret = body.secret;
 
-    // Simple auth check
-    if (secret !== 'DELETE_MY_DATA_123') {
+    // C2 FIX: Use environment secret instead of hardcoded value
+    // Set via: wrangler secret put CLEANUP_SECRET
+    if (!env.CLEANUP_SECRET || secret !== env.CLEANUP_SECRET) {
+      console.warn('Cleanup endpoint: unauthorized attempt');
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
@@ -201,10 +213,11 @@ async function handleCleanup(request: Request, env: Env): Promise<Response> {
     });
 
   } catch (error) {
+    // H5 FIX: Log detailed error server-side, return generic message to client
     console.error('Cleanup error:', error);
     return new Response(JSON.stringify({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Internal server error'
+      // Details removed - security best practice
     }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
@@ -254,6 +267,17 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
       return;
     }
 
+    // C1 FIX: Idempotency key to prevent duplicate webhook processing
+    // WhatsApp can send the same webhook multiple times
+    const dedupKey = `dedup:${message.businessPhoneNumberId}:${message.from}:${message.messageId}`;
+    const existingDedup = await env.CONVERSATIONS.get(dedupKey);
+    if (existingDedup) {
+      console.log(`⚡ Duplicate webhook detected, skipping: ${message.messageId}`);
+      return; // Already processed this message
+    }
+    // Mark as processing (1-hour TTL to handle retries)
+    await env.CONVERSATIONS.put(dedupKey, Date.now().toString(), { expirationTtl: 3600 });
+
     // Phase 5: Rate limiting check (before processing)
     const phoneRateLimit = await isPhoneRateLimited(env.CONVERSATIONS, message.from);
     if (!phoneRateLimit.allowed) {
@@ -274,12 +298,19 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
 
     // Handle text OR audio messages
     if (message.text) {
+      // H8 FIX: Input length validation (WhatsApp max is 4096)
+      let messageText = message.text;
+      if (messageText.length > MAX_MESSAGE_LENGTH) {
+        console.warn(`Message too long (${messageText.length} chars), truncating to ${MAX_MESSAGE_LENGTH}`);
+        messageText = messageText.substring(0, MAX_MESSAGE_LENGTH);
+      }
+
       // Text message - process directly
       const textMessage = {
         businessPhoneNumberId: message.businessPhoneNumberId,
         from: message.from,
         fromName: message.fromName,
-        text: message.text
+        text: messageText
       };
 
       safeLog('info', 'Processing text message', {
@@ -335,6 +366,15 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
     }
   } catch (error) {
     console.error('Error handling incoming message:', error);
+    // Log to dead letter queue for retry/debugging
+    // Note: We can't access 'message' here safely as it may not be defined if error occurred early
+    await logToDeadLetter(
+      env.DB,
+      'webhook_process',
+      'webhook-error',
+      error instanceof Error ? error.message : 'Unknown error',
+      { timestamp: Date.now() }
+    );
   }
 }
 
@@ -418,6 +458,7 @@ async function processMessage(
   });
 
   // Phase 5: Update lead score in background
+  // H2 FIX: Add error boundary to prevent silent failures
   ctx.waitUntil(
     updateLeadScoreInBackground(env.DB, lead.id, {
       intentType: response.intentType || null,
@@ -428,6 +469,13 @@ async function processMessage(
       flaggedForHuman: response.flaggedForHuman,
       processingTimeMs: processingTime,
       previousScore: lead.score,
+    }).catch(err => {
+      console.error('Background lead score update failed:', err);
+      logToDeadLetter(env.DB, 'lead_score', lead.id, err.message || 'Unknown error', {
+        intentType: response.intentType,
+        action: response.action,
+        processingTimeMs: processingTime,
+      });
     })
   );
 
@@ -454,6 +502,7 @@ async function processMessage(
   }
 
   // Phase 4: Send handoff notification if flagged
+  // H2 FIX: Add error boundary to prevent silent failures
   if (response.flaggedForHuman) {
     // Use waitUntil to send notification in background (don't block response)
     ctx.waitUntil(
@@ -474,6 +523,13 @@ async function processMessage(
         } else {
           console.log('📧 Handoff notification skipped:', result.error);
         }
+      }).catch(err => {
+        console.error('Background handoff notification failed:', err);
+        logToDeadLetter(env.DB, 'handoff_notification', lead.id, err.message || 'Unknown error', {
+          businessId: business.id,
+          reason: response.intentType,
+          urgency: response.action === 'empathize' ? 'high' : 'medium',
+        });
       })
     );
   }

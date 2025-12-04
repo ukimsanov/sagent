@@ -181,3 +181,22 @@ CREATE INDEX IF NOT EXISTS idx_message_events_timestamp ON message_events(timest
 CREATE INDEX IF NOT EXISTS idx_message_events_action ON message_events(action);
 CREATE INDEX IF NOT EXISTS idx_message_events_lead ON message_events(lead_id);
 CREATE INDEX IF NOT EXISTS idx_message_events_business_timestamp ON message_events(business_id, timestamp DESC);
+
+-- Dead Letter Queue for failed operations (Phase 5: Reliability)
+-- Used to track and retry failed background operations
+CREATE TABLE IF NOT EXISTS dead_letter_queue (
+  id TEXT PRIMARY KEY,
+  operation_type TEXT NOT NULL,  -- 'lead_score', 'handoff_notification', 'message_send', etc.
+  entity_id TEXT NOT NULL,       -- ID of the affected entity (lead_id, business_id, etc.)
+  error_message TEXT NOT NULL,
+  payload TEXT,                  -- JSON of the original operation payload
+  created_at INTEGER NOT NULL,
+  retry_count INTEGER DEFAULT 0,
+  last_retry_at INTEGER,
+  resolved_at INTEGER,
+  resolved_by TEXT              -- 'auto_retry', 'manual', etc.
+);
+
+CREATE INDEX IF NOT EXISTS idx_dead_letter_type ON dead_letter_queue(operation_type);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_created ON dead_letter_queue(created_at);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_unresolved ON dead_letter_queue(resolved_at) WHERE resolved_at IS NULL;

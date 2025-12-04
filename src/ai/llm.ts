@@ -98,14 +98,16 @@ const LLM_DECISION_SCHEMA = {
               'cancel_order'
             ]
           },
-          order_id: { type: 'string' },
-          amount: { type: 'number' },
-          reason: { type: 'string' },
-          status: { type: 'string' },
-          interest: { type: 'string' },
-          discount_code: { type: 'string' }
+          // All optional fields use ["string", "null"] or ["number", "null"] pattern
+          // per OpenAI Structured Outputs requirement: all properties must be in required[]
+          order_id: { type: ['string', 'null'] },
+          amount: { type: ['number', 'null'] },
+          reason: { type: ['string', 'null'] },
+          status: { type: ['string', 'null'] },
+          interest: { type: ['string', 'null'] },
+          discount_code: { type: ['string', 'null'] }
         },
-        required: ['type'],
+        required: ['type', 'order_id', 'amount', 'reason', 'status', 'interest', 'discount_code'],
         additionalProperties: false
       },
       description: 'Business actions to execute'
@@ -114,21 +116,22 @@ const LLM_DECISION_SCHEMA = {
       type: 'string',
       description: 'The message to send to the customer'
     },
+    // Optional fields use nullable types and must still be in required[]
     product_ids: {
-      type: 'array',
+      type: ['array', 'null'],
       items: { type: 'string' },
-      description: 'Product IDs to show (if conversation_action is show_products)'
+      description: 'Product IDs to show (if conversation_action is show_products). Null if not applicable.'
     },
     send_images: {
-      type: 'boolean',
-      description: 'Whether to send product images along with the message'
+      type: ['boolean', 'null'],
+      description: 'Whether to send product images along with the message. Null if not applicable.'
     },
     reasoning: {
-      type: 'string',
-      description: 'Short 1-2 sentence reasoning for logging, or empty string if not needed'
+      type: ['string', 'null'],
+      description: 'Short 1-2 sentence reasoning for logging, or null if not needed.'
     }
   },
-  required: ['conversation_action', 'business_actions', 'message'],
+  required: ['conversation_action', 'business_actions', 'message', 'product_ids', 'send_images', 'reasoning'],
   additionalProperties: false
 };
 
@@ -138,14 +141,26 @@ const LLM_DECISION_SCHEMA = {
 
 interface ResponsesAPIResponse {
   id: string;
+  status: 'completed' | 'incomplete' | 'failed';
+  incomplete_details?: {
+    reason: string;
+  };
   output: Array<{
-    type: string;
+    type: 'reasoning' | 'message';
+    status?: string;
     content?: Array<{
       type: string;
       text?: string;
     }>;
   }>;
   output_text?: string;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    output_tokens_details?: {
+      reasoning_tokens: number;
+    };
+  };
 }
 
 // ============================================================================
@@ -165,7 +180,7 @@ export async function callLLMForDecision(
   systemPrompt: string,
   environmentJson: string,
   apiKey: string,
-  timeoutMs: number = 20_000
+  timeoutMs: number = 60_000 // GPT-5-mini uses reasoning, needs more time
 ): Promise<LLMDecision | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -194,8 +209,12 @@ export async function callLLMForDecision(
             strict: true
           }
         },
-        // 512 tokens is plenty for a short JSON decision
-        max_output_tokens: 1024
+        // GPT-5-mini uses reasoning tokens - need enough for reasoning + JSON output
+        max_output_tokens: 4096,
+        // Use minimal reasoning to reduce token usage and latency for simple tasks
+        reasoning: {
+          effort: 'low'
+        }
       })
     });
 
@@ -230,7 +249,22 @@ export async function callLLMForDecision(
 
     const json = await res.json() as ResponsesAPIResponse;
     const duration = Date.now() - startTime;
-    console.log(`⏱️ LLM call completed in ${duration}ms`);
+
+    // Log usage for monitoring
+    const reasoningTokens = json.usage?.output_tokens_details?.reasoning_tokens || 0;
+    const outputTokens = json.usage?.output_tokens || 0;
+    console.log(`⏱️ LLM call completed in ${duration}ms (reasoning: ${reasoningTokens} tokens, output: ${outputTokens} tokens)`);
+
+    // Check for incomplete response
+    if (json.status === 'incomplete') {
+      console.error(`❌ LLM response incomplete: ${json.incomplete_details?.reason}`);
+      return null;
+    }
+
+    if (json.status === 'failed') {
+      console.error('❌ LLM response failed');
+      return null;
+    }
 
     // Parse the structured output
     const decision = parseDecision(json);

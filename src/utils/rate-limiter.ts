@@ -89,13 +89,24 @@ export async function checkRateLimit(
       };
     }
 
-    // Increment counter (fire and forget - don't await to avoid blocking)
-    // KV requires minimum 60 second TTL, so use max(60, windowSeconds * 2)
+    // H1 FIX: Await PUT and fail closed on error
+    // This prevents race conditions where multiple requests slip through
     const newCount = currentCount + 1;
     const ttl = Math.max(60, config.windowSeconds * 2);
-    kv.put(kvKey, newCount.toString(), {
-      expirationTtl: ttl,
-    }).catch(err => console.error('Rate limit KV write failed:', err));
+    try {
+      await kv.put(kvKey, newCount.toString(), {
+        expirationTtl: ttl,
+      });
+    } catch (err) {
+      console.error('Rate limit KV write failed, failing closed:', err);
+      // Fail closed: if we can't track the rate limit, deny the request
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: now + config.windowSeconds,
+        retryAfter: config.windowSeconds,
+      };
+    }
 
     return {
       allowed: true,
@@ -103,12 +114,13 @@ export async function checkRateLimit(
       resetAt: windowStart + config.windowSeconds,
     };
   } catch (error) {
-    // If KV fails, allow the request (fail open)
-    console.warn('Rate limit check failed, allowing request:', error);
+    // H1 FIX: Fail closed on KV read errors too
+    console.error('Rate limit check failed, failing closed:', error);
     return {
-      allowed: true,
-      remaining: config.limit,
+      allowed: false,
+      remaining: 0,
       resetAt: now + config.windowSeconds,
+      retryAfter: config.windowSeconds,
     };
   }
 }

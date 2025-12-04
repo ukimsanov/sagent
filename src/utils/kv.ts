@@ -11,6 +11,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  id?: string; // C4 FIX: WhatsApp message ID for dedup and ordering
 }
 
 export interface ConversationState {
@@ -127,19 +128,33 @@ export async function getConversation(
 
 /**
  * Add a message to the conversation and save
+ *
+ * C4 FIX: Added message ID deduplication to prevent race condition issues
+ * when multiple webhooks arrive for the same message
  */
 export async function addMessage(
   kv: KVNamespace,
   businessId: string,
   whatsappNumber: string,
   leadId: string,
-  message: Omit<Message, 'timestamp'>
+  message: Omit<Message, 'timestamp'>,
+  messageId?: string // Optional: WhatsApp message ID for dedup
 ): Promise<ConversationState> {
   const conversation = await getConversation(kv, businessId, whatsappNumber, leadId);
 
+  // C4 FIX: Check if message already exists (dedup by ID)
+  if (messageId) {
+    const exists = conversation.messages.some(m => m.id === messageId);
+    if (exists) {
+      console.log(`Message ${messageId} already in conversation, skipping duplicate`);
+      return conversation;
+    }
+  }
+
   const newMessage: Message = {
     ...message,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    id: messageId // Store the message ID
   };
 
   conversation.messages.push(newMessage);

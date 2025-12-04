@@ -33,6 +33,9 @@ import {
   getHandoffMessage,
 } from './prompts';
 
+// C3: Input sanitization for LLM prompt injection prevention
+import { sanitizeUserInput, analyzeInput } from '../utils/sanitize';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -177,10 +180,23 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     autoHandoffThreshold: config.autoHandoffThreshold,
   });
 
+  // C3 FIX: Input sanitization for LLM prompt injection prevention
+  const { sanitized: sanitizedMessage, flagged, reason } = sanitizeUserInput(ctx.messageText);
+  if (flagged) {
+    const analysis = analyzeInput(ctx.messageText);
+    console.warn(`⚠️ Input flagged for sanitization: ${reason}`, {
+      risk: analysis.risk,
+      patterns: analysis.patterns,
+    });
+    // Continue processing with sanitized input (don't block, just log for monitoring)
+  }
+  // Use sanitized message for all further processing
+  const messageText = sanitizedMessage;
+
   // Phase 4: Check for escalation keywords FIRST → immediate handoff
-  if (containsEscalationKeyword(ctx.messageText, config.escalationKeywords)) {
+  if (containsEscalationKeyword(messageText, config.escalationKeywords)) {
     console.log('🚨 Escalation keyword detected - immediate handoff');
-    await createHumanFlag(ctx.db, ctx.lead.id, 'high', `Escalation: ${ctx.messageText.substring(0, 100)}`);
+    await createHumanFlag(ctx.db, ctx.lead.id, 'high', `Escalation: ${messageText.substring(0, 100)}`);
     return {
       message: getHandoffMessage(config.brandTone),
       action: 'handoff',
@@ -205,7 +221,7 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   // FAST PATH: Pure greetings/thanks/farewell (no LLM)
   // =========================================================================
 
-  if (isPureGreeting(ctx.messageText)) {
+  if (isPureGreeting(messageText)) {
     console.log('⚡ Fast-path: pure greeting (no LLM)');
     return {
       message: getDeterministicGreeting(ctx.lead.name, ctx.business.name, config.brandTone),
@@ -215,7 +231,7 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     };
   }
 
-  if (isPureThanks(ctx.messageText)) {
+  if (isPureThanks(messageText)) {
     console.log('⚡ Fast-path: pure thanks (no LLM)');
     return {
       message: getDeterministicThanks(config.brandTone),
@@ -225,7 +241,7 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     };
   }
 
-  if (isPureFarewell(ctx.messageText)) {
+  if (isPureFarewell(messageText)) {
     console.log('⚡ Fast-path: pure farewell (no LLM)');
     return {
       message: getDeterministicFarewell(config.brandTone),
@@ -245,8 +261,8 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   let products: ProductWithMetadata[] = [];
   let searchQuery = '';
 
-  if (needsProductSearch(ctx.messageText)) {
-    searchQuery = extractSearchQuery(ctx.messageText);
+  if (needsProductSearch(messageText)) {
+    searchQuery = extractSearchQuery(messageText);
     console.log('🔍 Searching products for:', searchQuery);
     products = await searchProducts(ctx.db, ctx.businessId, searchQuery);
     console.log(`🔍 Found ${products.length} products`);
@@ -259,7 +275,7 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     ctx.conversationSummary,
     products,
     ctx.conversationHistory,
-    ctx.messageText
+    messageText
   );
 
   // Step 3: Build prompts
