@@ -18,7 +18,7 @@ const features = [
 		icon: Inbox,
 		title: "Unified Inbox",
 		description: "All your conversations from WhatsApp, Instagram, and Telegram in one place. Same AI, same quality, every channel.",
-		className: "md:col-span-2 md:row-span-2",
+		className: "md:col-span-2",
 		highlight: true,
 		badges: ["Cross-channel context", "Unified history"],
 	},
@@ -62,7 +62,7 @@ const features = [
 
 export function Features() {
 	return (
-		<section id="features" className="py-24 bg-muted/30">
+		<section id="features" className="py-16 sm:py-20 lg:py-24 bg-muted/30">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Section Header */}
 				<div className="text-center mb-16">
@@ -85,7 +85,7 @@ export function Features() {
 				</div>
 
 				{/* Bento Grid */}
-				<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+				<div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
 					{features.map((feature, index) => (
 						<BlurFade key={feature.title} delay={0.1 + index * 0.05}>
 							<MagicCard

@@ -56,7 +56,7 @@ const channels = [
 
 export function Channels() {
 	return (
-		<section id="channels" className="py-24">
+		<section id="channels" className="py-16 sm:py-20 lg:py-24">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Section Header */}
 				<div className="text-center mb-16">
@@ -79,7 +79,7 @@ export function Channels() {
 				</div>
 
 				{/* Channel Cards */}
-				<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+				<div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
 					{channels.map((channel, index) => (
 						<BlurFade key={channel.name} delay={0.2 + index * 0.1}>
 							<MagicCard className="p-6 h-full">

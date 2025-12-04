@@ -60,7 +60,7 @@ const plans = [
 
 export function Pricing() {
 	return (
-		<section id="pricing" className="py-24 bg-muted/30">
+		<section id="pricing" className="py-16 sm:py-20 lg:py-24 bg-muted/30">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Section Header */}
 				<div className="text-center mb-16">
@@ -83,14 +83,14 @@ export function Pricing() {
 				</div>
 
 				{/* Pricing cards */}
-				<div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 items-stretch">
+				<div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 items-stretch">
 					{plans.map((plan, index) => (
 						<BlurFade key={plan.name} delay={0.1 + index * 0.1}>
 							<div
 								className={cn(
 									"relative h-full rounded-2xl border bg-card p-6 flex flex-col transition-all duration-300",
 									plan.popular
-										? "border-primary shadow-xl shadow-primary/20 scale-[1.02] md:scale-105"
+										? "border-primary shadow-xl shadow-primary/20 ring-2 ring-primary/20"
 										: "border-border/50 hover:border-border hover:shadow-lg"
 								)}
 							>

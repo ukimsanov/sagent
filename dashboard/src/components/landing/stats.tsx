@@ -32,9 +32,9 @@ const stats = [
 
 export function Stats() {
 	return (
-		<section className="py-24 bg-muted/30">
+		<section className="py-16 sm:py-20 lg:py-24 bg-muted/30">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-				<div className="grid grid-cols-2 md:grid-cols-4 gap-8 md:gap-12">
+				<div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 md:gap-8 lg:gap-12">
 					{stats.map((stat, index) => (
 						<BlurFade key={stat.label} delay={0.1 + index * 0.1}>
 							<div className="text-center">

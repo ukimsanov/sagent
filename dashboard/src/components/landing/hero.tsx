@@ -79,25 +79,31 @@ function AnimatedChat() {
 			}, msg.delay);
 		});
 
-		const totalDuration = 10000;
+		const totalDuration = 12000;
 		const interval = setInterval(() => {
+			// Fade out all messages first
 			setVisibleMessages([]);
-			chatMessages.forEach((msg, index) => {
-				if (msg.role === "agent" && msg.delay > 0) {
-					setTimeout(() => setIsTyping(true), msg.delay - 800);
-				}
-				setTimeout(() => {
-					setIsTyping(false);
-					setVisibleMessages((prev) => [...prev, index]);
-				}, msg.delay);
-			});
+			setIsTyping(false);
+
+			// Wait 500ms, then restart animation
+			setTimeout(() => {
+				chatMessages.forEach((msg, index) => {
+					if (msg.role === "agent" && msg.delay > 0) {
+						setTimeout(() => setIsTyping(true), msg.delay - 800);
+					}
+					setTimeout(() => {
+						setIsTyping(false);
+						setVisibleMessages((prev) => [...prev, index]);
+					}, msg.delay);
+				});
+			}, 500);
 		}, totalDuration);
 
 		return () => clearInterval(interval);
 	}, []);
 
 	return (
-		<div className="w-full max-w-[340px] mx-auto">
+		<div className="w-full max-w-[320px] sm:max-w-[360px] lg:max-w-[400px] mx-auto">
 			{/* Phone frame */}
 			<div className="bg-gray-900 rounded-[2.5rem] p-2 shadow-2xl">
 				<div className="bg-white rounded-[2rem] overflow-hidden">
@@ -117,7 +123,7 @@ function AnimatedChat() {
 
 					{/* Chat area */}
 					<div
-						className="p-4 space-y-2.5 min-h-[280px] max-h-[280px] overflow-hidden"
+						className="p-4 space-y-3 min-h-[300px] sm:min-h-[320px] lg:min-h-[340px] overflow-hidden"
 						style={{
 							backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e5ddd5' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
 							backgroundColor: "#ECE5DD",
@@ -210,7 +216,7 @@ function AnimatedChat() {
 
 export function Hero() {
 	return (
-		<section className="relative pt-32 pb-24 overflow-hidden">
+		<section className="relative pt-20 sm:pt-24 lg:pt-32 pb-16 sm:pb-20 lg:pb-24 overflow-hidden">
 			{/* Background */}
 			<div className="absolute inset-0 -z-10">
 				<div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-background to-background" />
@@ -219,7 +225,7 @@ export function Hero() {
 			</div>
 
 			<div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-				<div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+				<div className="grid lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 xl:gap-20 items-center">
 					{/* Left column - Content */}
 					<div className="text-center lg:text-left">
 						{/* Badge */}
@@ -235,14 +241,14 @@ export function Hero() {
 
 						{/* Headline */}
 						<BlurFade delay={0.2}>
-							<h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6">
+							<h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-4 sm:mb-6">
 								Turn conversations into{" "}
 								<span className="text-primary">conversions</span>
 							</h1>
 						</BlurFade>
 
 						<BlurFade delay={0.3}>
-							<p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-xl mx-auto lg:mx-0">
+							<p className="text-lg sm:text-xl text-muted-foreground mb-6 sm:mb-8 lg:mb-10 max-w-xl mx-auto lg:mx-0">
 								Your AI sales agent handles customer inquiries 24/7 on
 								WhatsApp. Answer questions, recommend products, and close sales
 								while you sleep.

@@ -52,7 +52,7 @@ const stats = [
 
 export function Testimonials() {
 	return (
-		<section id="testimonials" className="py-24 bg-background">
+		<section id="testimonials" className="py-16 sm:py-20 lg:py-24 bg-background">
 			<div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 				{/* Section Header */}
 				<div className="text-center mb-16">
@@ -94,7 +94,7 @@ export function Testimonials() {
 				</BlurFade>
 
 				{/* Testimonials grid */}
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+				<div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
 					{testimonials.map((testimonial, index) => (
 						<BlurFade key={testimonial.name} delay={0.1 + index * 0.1}>
 							<MagicCard className="p-6 h-full">
