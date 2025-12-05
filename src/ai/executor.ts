@@ -543,46 +543,43 @@ interface NoProductsMessageParams {
  * IMPORTANT: This function ONLY uses data from the DB (categories).
  * It never trusts LLM output for inventory claims.
  *
- * The message varies based on:
- * - What the LLM wanted to do (ask_clarification vs answer_question)
- * - Brand tone
- * - Available categories from DB
+ * Key principle: Never say "we don't have X specifically" - rephrase naturally
+ * and proactively suggest alternatives.
  */
 function buildNoProductsMessage(params: NoProductsMessageParams): string {
-  const { searchQuery, categories, tone, llmAction } = params;
+  const { categories, tone, llmAction } = params;
+  // Note: searchQuery intentionally not used to avoid awkward "we don't have X" phrasing
 
   // Join categories nicely: "Hoodies, Jeans, and Accessories"
   const categoryList = joinWithAnd(categories.slice(0, 4)); // Max 4 categories
 
-  // If LLM wanted to ask clarification, it's probably a vague query
-  // Build a clarifying message
+  // If LLM wanted to ask clarification, guide them to our available categories
   if (llmAction === 'ask_clarification') {
     const clarifyTemplates = {
       friendly: categories.length > 0
-        ? `I'd love to help! We don't have "${searchQuery}" specifically, but we do carry ${categoryList}. Which of those interests you? 😊`
-        : `I'd love to help! We don't have "${searchQuery}" in stock right now. Is there something else I can help you find?`,
+        ? `We don't carry that right now, but we've got some great ${categoryList}! What catches your eye? 👀`
+        : `That's not in our collection at the moment. What style are you going for? I'd love to help you find something! 😊`,
       professional: categories.length > 0
-        ? `Thank you for your interest. We don't currently carry "${searchQuery}", but we do offer ${categoryList}. Would any of these work for you?`
-        : `Thank you for your interest. We don't currently stock "${searchQuery}". May I help you find something else?`,
+        ? `That's not currently available. We do offer ${categoryList} – would any of those interest you?`
+        : `That item isn't in our current inventory. May I help you explore other options?`,
       casual: categories.length > 0
-        ? `We don't have "${searchQuery}" right now, but we've got ${categoryList}. Want to check any of those out?`
-        : `No luck on "${searchQuery}" sadly. Anything else I can help with?`,
+        ? `Don't have that one, but check out our ${categoryList}! Anything sound good?`
+        : `That's not in stock. What else are you into?`,
     };
     return clarifyTemplates[tone];
   }
 
-  // Default: answer_question / show_products / other
-  // Be honest about not having the item, suggest alternatives
+  // Default: proactively redirect to what we have
   const answerTemplates = {
     friendly: categories.length > 0
-      ? `We don't carry "${searchQuery}" at the moment 😕 But we do have ${categoryList}! Would any of those work for what you're looking for?`
-      : `We don't have "${searchQuery}" in stock right now. Is there something else I can help you find?`,
+      ? `We don't carry that right now, but we've got some awesome ${categoryList}! Want me to show you our bestsellers? 🔥`
+      : `That's not available at the moment. Let me know what style you're looking for – I'll find you something great!`,
     professional: categories.length > 0
-      ? `We don't currently stock "${searchQuery}". However, we do offer ${categoryList}. Would you like to explore any of these options?`
-      : `We don't currently have "${searchQuery}" available. Is there anything else I can assist you with?`,
+      ? `That item isn't currently in our collection. However, we have excellent options in ${categoryList}. Shall I recommend some picks?`
+      : `That's not currently available. Would you like me to suggest some alternatives?`,
     casual: categories.length > 0
-      ? `No "${searchQuery}" in stock, sadly 😅 But we've got ${categoryList}. Want me to show you something from those?`
-      : `We don't have "${searchQuery}" right now. Anything else you're looking for?`,
+      ? `Don't have that, but we've got killer ${categoryList}! Want me to hook you up with something?`
+      : `That's not in stock right now. What else can I help you find?`,
   };
   return answerTemplates[tone];
 }

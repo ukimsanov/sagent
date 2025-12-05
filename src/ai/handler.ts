@@ -163,9 +163,13 @@ const PURE_THANKS_REGEX = /^(thanks?|thank\s+you|thx|ty)[\s!.]*$/i;
 const PURE_FAREWELL_REGEX = /^(bye|goodbye|see\s+ya|later)[\s!.]*$/i;
 
 // Vague shopping phrases that should trigger clarification, not product search
-const VAGUE_PHRASES_REGEX = /\b(something|anything|nice|cool|good|stuff|things?)\b/i;
+const VAGUE_PHRASES_REGEX = /\b(something|anything|stuff|things?)\b/i;
+// Note: "nice", "cool", "good" removed - they're often used to express preference ("looks nice", "that's cool")
+
 // Specific product terms that indicate a concrete request (not vague)
-const SPECIFIC_PRODUCT_REGEX = /\b(hoodie|hoodies|jeans|jacket|dress|t-?shirt|pants|shorts|sweater|coat|top|bottoms?|shirt|shoes?|sneakers?|boots?|sandals?|hat|cap|beanie|bag|backpack|size|color|colour|black|white|blue|red|green|small|medium|large|xl|xxl|\$\d+|under\s+\d+|cheap|expensive)\b/i;
+// Includes: product types, sizes, colors, price terms, fit descriptors, and intent terms
+const SPECIFIC_PRODUCT_REGEX = /\b(hoodie|hoodies|jeans|jacket|dress|t-?shirt|pants|shorts|sweater|coat|top|bottoms?|shirt|shoes?|sneakers?|boots?|sandals?|hat|cap|beanie|bag|backpack|size|color|colour|black|white|blue|red|green|small|medium|large|xl|xxl|\$\d+|under\s+\d+|cheap|expensive|warm|cold|winter|summer|casual|formal|cozy|comfy|layering|slim|relaxed|skinny|oversized|fitted|high-?rise|low-?rise|pullover|zip-?up|\b\d{2}\b)\b/i;
+// Note: \b\d{2}\b matches clothing sizes like "32", "34", etc.
 
 function isPureGreeting(message: string): boolean {
   return message.length < 20 && PURE_GREETING_REGEX.test(message.trim());

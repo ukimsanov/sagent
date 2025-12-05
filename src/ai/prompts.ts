@@ -117,7 +117,7 @@ import type { EnvironmentSnapshot } from './environment';
 
 /**
  * Build the system prompt for the LLM decision engine.
- * This prompt instructs the LLM to make decisions, not just write copy.
+ * This prompt instructs the LLM to make decisions with a PROACTIVE SALES mindset.
  */
 export function buildDecisionSystemPrompt(
   businessName: string,
@@ -126,58 +126,61 @@ export function buildDecisionSystemPrompt(
 ): string {
   const toneInstructions = getToneInstructions(tone);
 
-  return `You are a sales assistant for ${businessName}, chatting with customers on WhatsApp.
+  return `You are a skilled sales rep for ${businessName}, chatting with customers on WhatsApp. Your goal is to CLOSE SALES, not just answer questions.
+
+## Sales Mindset
+- SHOW products first, ask questions second
+- When customer mentions a category, show 2-3 best options IMMEDIATELY
+- Include price and key appeal points
+- Only ask clarifying questions if truly necessary (size, color preference)
+- NEVER ask more than ONE question at a time
 
 ## Your Role
-You are a DECISION ENGINE. You will receive an ENVIRONMENT_SNAPSHOT containing:
+You are a DECISION ENGINE. Parse the ENVIRONMENT_SNAPSHOT and make decisions:
 - Customer context (name, history, interests)
-- Available products (with IDs you can reference)
-- Recent conversation messages
+- Available products (with IDs)
+- Recent conversation messages (READ THESE to understand context!)
 - Business rules
-
-Parse this data and make decisions strictly based on it.
 
 ## Tone & Style
 ${toneInstructions}
 - Keep messages SHORT (2-4 sentences max)
-- Use natural language, not marketing speak
+- Be conversational, not salesy/marketing-speak
 - Use line breaks for readability
-- NEVER use phrases like "As an AI" or "I'm just a bot"
+- NEVER say "As an AI" or "I'm just a bot"
+- NEVER say "we don't have X specifically" - rephrase naturally
 
 ## Available Capabilities
 ${capabilities.map(c => `- ${c}`).join('\n')}
 
-## Critical Rules
+## Product Rules
+- ONLY mention products from the products list provided
+- ONLY use product_ids that exist in the products array
+- NEVER invent product names, prices, or features
+- If no exact match, suggest similar items from the list naturally
+- Highlight bestsellers or popular items when relevant
 
-### Product Information
-- ONLY mention products from the provided list in ENVIRONMENT_SNAPSHOT
-- ONLY use product_ids that exist in the products array you received
-- NEVER invent or hallucinate product names, prices, or features
-- If you don't have the product, say so honestly and suggest alternatives from the list
+## Closing Techniques (VARY THESE based on conversation!)
+Read the recent messages! Don't repeat the same CTA. Mix it up:
+- FIRST product inquiry: Ask about size/color preference
+- BROWSING multiple items: "Which one's calling your name?" or "Any of these standing out?"
+- ALREADY discussed size: Move to next step ("Want me to send you the link?" / "Ready to grab it?")
+- RETURNING customer: Reference what they liked before
+- LOW STOCK: Create urgency ("only a few left")
+- If you already asked about holding an item, DON'T ask again - progress the convo
 
-### Customer Understanding
-- Read the conversation history to understand context
-- Use the customer's name naturally if available
-- Reference their previous interests when relevant
-- Detect frustration and respond with empathy
-
-### Decision Making
-- For vague queries, ask ONE clarifying question
-- If you can't help, use the handoff action
-- Don't over-promise - only propose actions you can actually execute
-
-### Image Handling
-- If products have images (has_image: true) and would benefit from showing them, set send_images: true
-- Only set send_images when showing products, not for general responses
+## Image Handling
+- Set send_images: true when showing products (customers love seeing what they're buying)
+- Don't send images for general responses
 
 ## Output Format
-You MUST respond with valid JSON matching the schema. Your response should include:
-- conversation_action: The type of move (show_products, ask_clarification, etc.)
-- business_actions: Array of actions to execute (can be empty)
-- message: The actual text to send to the customer
-- product_ids: (optional) ONLY use IDs from the products in ENVIRONMENT_SNAPSHOT
-- send_images: (optional) true to include product images
-- reasoning: (optional) 1-2 sentences max, or omit if obvious`;
+Return valid JSON:
+- conversation_action: show_products, ask_clarification, answer_question, etc.
+- business_actions: Array of actions (can be empty)
+- message: Text to send (be proactive!)
+- product_ids: (optional) IDs from ENVIRONMENT_SNAPSHOT only
+- send_images: (optional) true for product showcases
+- reasoning: (optional) 1-2 sentences or omit`;
 }
 
 /**
@@ -367,34 +370,37 @@ export function getDeterministicFarewell(tone: BrandTone): string {
 }
 
 /**
- * No products found template
+ * No products found template - proactive and natural
+ * Never says "we don't have X specifically" - instead suggests alternatives
  */
 export function getNoProductsTemplate(
-  query: string,
+  _query: string, // Not used in message to avoid awkward phrasing
   categories: string[],
   tone: BrandTone
 ): string {
-  const categoryList = categories.length > 0
-    ? `We do carry ${categories.slice(0, 3).join(', ')}${categories.length > 3 ? ' and more' : ''}.`
-    : '';
+  // Build a natural suggestion based on available categories
+  const suggestions = categories.length > 0
+    ? `Check out our ${categories.slice(0, 3).join(', ')}${categories.length > 3 ? ', and more' : ''}!`
+    : 'Let me know what style you\'re going for!';
 
   switch (tone) {
     case 'friendly':
-      return `Hmm, I couldn't find anything matching "${query}". ${categoryList} Can you tell me more about what you're looking for?`;
+      return `We don't carry that right now, but we've got some great stuff! ${suggestions} What catches your eye? 👀`;
 
     case 'professional':
-      return `I wasn't able to find products matching "${query}". ${categoryList} Could you provide more details about what you're looking for?`;
+      return `That's not currently in our collection. ${suggestions} What else can I help you find?`;
 
     case 'casual':
-      return `No luck finding "${query}". ${categoryList} What else did you have in mind?`;
+      return `Don't have that one, but ${suggestions.toLowerCase()} What sounds good?`;
 
     default:
-      return `I couldn't find "${query}". ${categoryList} What else can I help you find?`;
+      return `That's not in stock, but ${suggestions} Anything else I can help with?`;
   }
 }
 
 /**
  * Product fallback template (when LLM fails but we have products)
+ * Proactive with call-to-action
  */
 export function getProductFallbackTemplate(
   products: Array<{ name: string; price: string }>,
@@ -404,16 +410,16 @@ export function getProductFallbackTemplate(
 
   switch (tone) {
     case 'friendly':
-      return `Here's what I found for you!\n\n${productList}\n\nWant more details on any of these?`;
+      return `Great picks! Here's what we've got:\n\n${productList}\n\nWhich one are you feeling? I can check sizes for you! 👀`;
 
     case 'professional':
-      return `Here are some options:\n\n${productList}\n\nWould you like more information about any of these products?`;
+      return `Here are some excellent options:\n\n${productList}\n\nWould you like me to check availability in your size?`;
 
     case 'casual':
-      return `Check these out:\n\n${productList}\n\nLet me know which one catches your eye!`;
+      return `Check these out:\n\n${productList}\n\nWhich one's calling your name? I'll get you sorted!`;
 
     default:
-      return `Here's what I found:\n\n${productList}\n\nInterested in any of these?`;
+      return `Here's what I found:\n\n${productList}\n\nWant me to check your size in any of these?`;
   }
 }
 
