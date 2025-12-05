@@ -482,7 +482,7 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
       const lead = await db.getOrCreateLead(env.DB, business.id, testPhone);
 
       // Get conversation history from Durable Object
-      const conversation = await getConversation(
+      let conversation = await getConversation(
         env.CONVERSATION_DO,
         business.id,
         testPhone,
@@ -490,7 +490,16 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
       );
       const conversationSummary = await db.getConversationSummary(env.DB, lead.id);
 
-      // Call the handler directly
+      // Add user message to conversation BEFORE handling (like real webhook does)
+      conversation = await addMessage(
+        env.CONVERSATION_DO,
+        business.id,
+        testPhone,
+        lead.id,
+        { role: 'user', content: body.text }
+      );
+
+      // Call the handler directly with updated conversation history
       const response = await handleMessage({
         db: env.DB,
         businessId: business.id,
@@ -503,6 +512,15 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
         ai: env.AI,
         productVectors: env.PRODUCT_VECTORS,
       });
+
+      // Add assistant response to conversation AFTER handling (like real webhook does)
+      await addMessage(
+        env.CONVERSATION_DO,
+        business.id,
+        testPhone,
+        lead.id,
+        { role: 'assistant', content: response.message }
+      );
 
       return new Response(JSON.stringify({
         success: true,
