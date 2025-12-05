@@ -162,6 +162,68 @@ export default {
 
     // 404 for unknown routes
     return new Response('Not Found', { status: 404 });
+  },
+
+  /**
+   * Scheduled handler for background summarization (Cron Trigger)
+   * Runs daily at 3 AM UTC to summarize conversations that:
+   * - Have at least 5 messages
+   * - Have new messages since last summary, OR no summary yet
+   */
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    console.log(`[Cron] Background summarization started at ${new Date().toISOString()}`);
+
+    try {
+      // Get leads that need summarization
+      const leads = await db.getLeadsNeedingSummarization(env.DB, 50);
+      console.log(`[Cron] Found ${leads.length} leads needing summarization`);
+
+      if (leads.length === 0) {
+        console.log('[Cron] No conversations need summarization');
+        return;
+      }
+
+      // Process each lead in the background
+      for (const lead of leads) {
+        ctx.waitUntil(
+          (async () => {
+            try {
+              // Get conversation from Durable Object
+              const conversationState = await getConversation(
+                env.CONVERSATION_DO,
+                lead.business_id,
+                lead.whatsapp_number,
+                lead.id
+              );
+
+              const messages = conversationState.messages;
+
+              if (messages.length < 5) {
+                console.log(`[Cron] Skipping lead ${lead.id}: only ${messages.length} messages`);
+                return;
+              }
+
+              // Get existing summary
+              const existingSummary = await db.getConversationSummary(env.DB, lead.id);
+
+              // Run summarization
+              await summarizeConversation(env, lead.id, messages, existingSummary);
+              console.log(`[Cron] Summarized lead ${lead.id} (${messages.length} messages)`);
+            } catch (error) {
+              console.error(`[Cron] Failed to summarize lead ${lead.id}:`, error);
+            }
+          })()
+        );
+      }
+
+      console.log(`[Cron] Background summarization queued ${leads.length} leads`);
+    } catch (error) {
+      console.error('[Cron] Background summarization failed:', error);
+    }
   }
 } satisfies ExportedHandler<Env>;
 
@@ -1093,8 +1155,15 @@ async function summarizeConversation(
 
     console.log('Summarization raw response:', content.substring(0, 200));
 
+    // Strip markdown code blocks if present (LLM sometimes wraps JSON in ```json ... ```)
+    let jsonContent = content.trim();
+    if (jsonContent.startsWith('```')) {
+      // Remove opening ```json or ``` and closing ```
+      jsonContent = jsonContent.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+
     // Parse the JSON response
-    const extracted = JSON.parse(content) as {
+    const extracted = JSON.parse(jsonContent) as {
       summary: string;
       key_interests: string[];
       objections: string[];

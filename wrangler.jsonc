@@ -62,6 +62,11 @@
 	// Workers AI for embeddings
 	"ai": {
 		"binding": "AI"
+	},
+
+	// Cron triggers for background summarization
+	"triggers": {
+		"crons": ["0 3 * * *"]  // Daily at 3 AM UTC
 	}
 
 	// Secrets (set via `wrangler secret put`):

@@ -519,6 +519,32 @@ export async function upsertConversationSummary(
   return updated;
 }
 
+/**
+ * Get leads that need summarization for background cron job.
+ * Only returns leads where:
+ * 1. No summary exists yet, OR
+ * 2. New messages since last summary (last_contact > cs.updated_at)
+ * 3. At least 5 messages (worth summarizing)
+ */
+export async function getLeadsNeedingSummarization(
+  db: D1Database,
+  limit: number = 50
+): Promise<Lead[]> {
+  const result = await db
+    .prepare(`
+      SELECT l.* FROM leads l
+      LEFT JOIN conversation_summaries cs ON l.id = cs.lead_id
+      WHERE l.message_count >= 5
+        AND (cs.updated_at IS NULL OR l.last_contact > cs.updated_at)
+      ORDER BY l.last_contact DESC
+      LIMIT ?
+    `)
+    .bind(limit)
+    .all<Lead>();
+
+  return result.results || [];
+}
+
 // ============================================================================
 // Human Flag Queries
 // ============================================================================
