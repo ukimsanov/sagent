@@ -418,14 +418,18 @@ export async function updateLeadScore(
   reason: string
 ): Promise<void> {
   // Clamp score between 0 and 100
+  // Status thresholds based on typical 3-4 message sales conversation:
+  // - engaged: >= 10 (first product inquiry)
+  // - warm: >= 30 (provided preferences/size)
+  // - hot: >= 55 (selected product, ready to buy)
   await db
     .prepare(`
       UPDATE leads
       SET score = MAX(0, MIN(100, score + ?)),
           status = CASE
-            WHEN score + ? >= 80 THEN 'hot'
-            WHEN score + ? >= 50 THEN 'warm'
-            WHEN score + ? >= 20 THEN 'engaged'
+            WHEN score + ? >= 55 THEN 'hot'
+            WHEN score + ? >= 30 THEN 'warm'
+            WHEN score + ? >= 10 THEN 'engaged'
             ELSE status
           END,
           notes = COALESCE(notes, '') || ? || char(10)

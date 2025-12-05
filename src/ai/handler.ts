@@ -69,6 +69,8 @@ export interface HandlerResponse {
   clarificationCount?: number;
   // New: Products with images to send
   imagesToSend?: Array<{ url: string; caption?: string }>;
+  // Lead tracking actions executed
+  businessActions?: Array<{ type: string; [key: string]: unknown }>;
 }
 
 type ResponseAction =
@@ -613,6 +615,7 @@ async function processLLMDecision(
     searchQuery: searchQuery || undefined,
     productsShown: finalDecision.product_ids,
     imagesToSend,
+    businessActions: finalDecision.business_actions as Array<{ type: string; [key: string]: unknown }>,
   };
 }
 

@@ -530,6 +530,7 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
         intentType: response.intentType,
         productsShown: response.productsShown,
         flaggedForHuman: response.flaggedForHuman,
+        businessActions: response.businessActions || [],
       }), { headers: jsonHeaders });
     }
 
