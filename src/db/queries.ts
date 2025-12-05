@@ -221,6 +221,51 @@ export async function getProductsByCategory(
   return (result.results || []).map(parseProductMetadata);
 }
 
+/**
+ * Get all products for a business (for batch embedding)
+ */
+export async function getAllProductsForBusiness(
+  db: D1Database,
+  businessId: string
+): Promise<Product[]> {
+  const result = await db
+    .prepare('SELECT * FROM products WHERE business_id = ?')
+    .bind(businessId)
+    .all<Product>();
+
+  return result.results || [];
+}
+
+/**
+ * Get products by IDs (for fetching full data after semantic search)
+ */
+export async function getProductsByIds(
+  db: D1Database,
+  productIds: string[]
+): Promise<ProductWithMetadata[]> {
+  if (productIds.length === 0) {
+    return [];
+  }
+
+  // Build parameterized query for IN clause
+  const placeholders = productIds.map(() => '?').join(',');
+  const result = await db
+    .prepare(`SELECT * FROM products WHERE id IN (${placeholders})`)
+    .bind(...productIds)
+    .all<Product>();
+
+  // Preserve the order from productIds (important for ranking)
+  const productMap = new Map<string, Product>();
+  for (const product of result.results || []) {
+    productMap.set(product.id, product);
+  }
+
+  return productIds
+    .map((id) => productMap.get(id))
+    .filter((p): p is Product => p !== undefined)
+    .map(parseProductMetadata);
+}
+
 export async function checkProductAvailability(
   db: D1Database,
   productId: string,

@@ -57,6 +57,8 @@ import {
 } from './db/dead-letter';
 import { maskPhoneNumber, safeLog } from './utils/pii-masking';
 import { logToDeadLetter } from './db/dead-letter';
+// Phase 1: Semantic search embeddings
+import { upsertProductVectorsBatch, hasProductVectors } from './ai/embeddings';
 
 // ============================================================================
 // Types
@@ -67,6 +69,10 @@ interface Env {
   DB: D1Database;
   CONVERSATIONS: KVNamespace; // Used for dedup keys, rate limiting, transcription cache
   CONVERSATION_DO: DurableObjectNamespace; // C4 FIX: Atomic conversation state
+
+  // Semantic search bindings (Phase 1: AI Sales Agent Redesign)
+  PRODUCT_VECTORS: VectorizeIndex; // Vectorize for semantic product search
+  AI: Ai; // Workers AI for embeddings (bge-base-en-v1.5)
 
   // Environment variables
   WHATSAPP_VERIFY_TOKEN: string;
@@ -113,6 +119,13 @@ export default {
     // =========================================================================
     if (url.pathname.startsWith('/admin/dlq')) {
       return handleAdminDLQ(request, url, env);
+    }
+
+    // =========================================================================
+    // Admin: Product embedding endpoints (Phase 1: Semantic Search)
+    // =========================================================================
+    if (url.pathname.startsWith('/admin/embed')) {
+      return handleAdminEmbed(request, url, env);
     }
 
     // WhatsApp webhook endpoint
@@ -316,6 +329,97 @@ async function handleAdminDLQ(request: Request, url: URL, env: Env): Promise<Res
 
   } catch (error) {
     console.error('Admin DLQ error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: jsonHeaders
+    });
+  }
+}
+
+// ============================================================================
+// Admin: Product Embedding (POST /admin/embed/*)
+// Phase 1: Semantic Search Setup
+// ============================================================================
+
+async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<Response> {
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+
+  // Auth check - reuse CLEANUP_SECRET for admin endpoints
+  const authHeader = request.headers.get('Authorization');
+  if (!env.CLEANUP_SECRET || authHeader !== `Bearer ${env.CLEANUP_SECRET}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders
+    });
+  }
+
+  try {
+    // POST /admin/embed/business - Embed all products for a business
+    if (url.pathname === '/admin/embed/business' && request.method === 'POST') {
+      const body = await request.json() as { business_id?: string };
+      if (!body.business_id) {
+        return new Response(JSON.stringify({ error: 'business_id required' }), {
+          status: 400,
+          headers: jsonHeaders
+        });
+      }
+
+      // Get all products for the business
+      const products = await db.getAllProductsForBusiness(env.DB, body.business_id);
+      if (products.length === 0) {
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'No products found for this business',
+          embedded: 0
+        }), { headers: jsonHeaders });
+      }
+
+      // Batch embed all products
+      const result = await upsertProductVectorsBatch(env.PRODUCT_VECTORS, env.AI, products);
+
+      if (!result.success) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: result.error
+        }), { status: 500, headers: jsonHeaders });
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        message: `Embedded ${result.upsertedCount} products for business ${body.business_id}`,
+        embedded: result.upsertedCount
+      }), { headers: jsonHeaders });
+    }
+
+    // GET /admin/embed/status - Check if a business has embeddings
+    if (url.pathname === '/admin/embed/status' && request.method === 'GET') {
+      const businessId = url.searchParams.get('business_id');
+      if (!businessId) {
+        return new Response(JSON.stringify({ error: 'business_id query param required' }), {
+          status: 400,
+          headers: jsonHeaders
+        });
+      }
+
+      const hasVectors = await hasProductVectors(env.PRODUCT_VECTORS, env.AI, businessId);
+      const productCount = (await db.getAllProductsForBusiness(env.DB, businessId)).length;
+
+      return new Response(JSON.stringify({
+        success: true,
+        business_id: businessId,
+        has_vectors: hasVectors,
+        product_count: productCount
+      }), { headers: jsonHeaders });
+    }
+
+    // Unknown embed endpoint
+    return new Response(JSON.stringify({ error: 'Unknown embed endpoint' }), {
+      status: 404,
+      headers: jsonHeaders
+    });
+
+  } catch (error) {
+    console.error('Admin embed error:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: jsonHeaders

@@ -49,7 +49,20 @@
 			"tag": "v1",
 			"new_sqlite_classes": ["ConversationDO"]
 		}
-	]
+	],
+
+	// Vectorize for semantic product search
+	"vectorize": [
+		{
+			"binding": "PRODUCT_VECTORS",
+			"index_name": "product-embeddings"
+		}
+	],
+
+	// Workers AI for embeddings
+	"ai": {
+		"binding": "AI"
+	}
 
 	// Secrets (set via `wrangler secret put`):
 	// - OPENAI_API_KEY
