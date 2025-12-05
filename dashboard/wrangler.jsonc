@@ -27,6 +27,13 @@
 			"database_id": "7f289e64-10ef-47cb-b27e-376d81ad2366"
 		}
 	],
+	// R2 Bucket for product images
+	"r2_buckets": [
+		{
+			"binding": "PRODUCT_IMAGES",
+			"bucket_name": "product-images"
+		}
+	],
 	// Service binding for self-reference (required for revalidation)
 	// See: https://opennext.js.org/cloudflare/get-started
 	"services": [

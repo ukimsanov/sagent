@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Users,
   Settings,
+  Package,
 } from "lucide-react";
 import type { AuthUser } from "@/types/auth";
 
@@ -33,6 +34,11 @@ const navItems = [
     title: "Overview",
     href: "/",
     icon: LayoutDashboard,
+  },
+  {
+    title: "Products",
+    href: "/products",
+    icon: Package,
   },
   {
     title: "Conversations",

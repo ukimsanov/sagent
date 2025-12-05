@@ -71,6 +71,27 @@ export interface Business {
   ai_enabled: number; // 0 = disabled, 1 = enabled (default)
 }
 
+export interface Product {
+  id: string;
+  business_id: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  currency: string;
+  category: string | null;
+  in_stock: number;
+  stock_quantity: number | null;
+  metadata: string | null;
+  image_url: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProductWithImages extends Omit<Product, 'image_url'> {
+  image_url: string | null;
+  image_urls: string[];
+}
+
 /**
  * Get the D1 database binding from Cloudflare context
  */
@@ -517,5 +538,286 @@ export async function updateBusinessConfig(
   await db
     .prepare(`UPDATE businesses SET ${updates.join(', ')} WHERE id = ?`)
     .bind(...values)
+    .run();
+}
+
+// ============================================================================
+// Product Queries
+// ============================================================================
+
+/**
+ * Parse image URLs from JSON string
+ */
+function parseImageUrls(imageUrl: string | null): string[] {
+  if (!imageUrl) return [];
+  try {
+    const parsed = JSON.parse(imageUrl);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Convert Product to ProductWithImages
+ */
+function toProductWithImages(product: Product): ProductWithImages {
+  return {
+    ...product,
+    image_urls: parseImageUrls(product.image_url),
+  };
+}
+
+/**
+ * Get products for a business (paginated with search/filter)
+ */
+export async function getProducts(
+  db: D1Database,
+  businessId: string,
+  options: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    category?: string;
+    inStock?: boolean;
+  } = {}
+) {
+  const { limit = 50, offset = 0, search, category, inStock } = options;
+
+  const conditions: string[] = ['business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (search) {
+    conditions.push('(name LIKE ? OR description LIKE ?)');
+    const searchPattern = `%${search}%`;
+    params.push(searchPattern, searchPattern);
+  }
+
+  if (category) {
+    conditions.push('category = ?');
+    params.push(category);
+  }
+
+  if (inStock !== undefined) {
+    conditions.push('in_stock = ?');
+    params.push(inStock ? 1 : 0);
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  const countResult = await db
+    .prepare(`SELECT COUNT(*) as count FROM products WHERE ${whereClause}`)
+    .bind(...params)
+    .first<{ count: number }>();
+
+  const result = await db
+    .prepare(`
+      SELECT * FROM products
+      WHERE ${whereClause}
+      ORDER BY updated_at DESC
+      LIMIT ? OFFSET ?
+    `)
+    .bind(...params, limit, offset)
+    .all<Product>();
+
+  return {
+    products: (result.results || []).map(toProductWithImages),
+    total: countResult?.count || 0,
+  };
+}
+
+/**
+ * Get a single product by ID
+ */
+export async function getProductById(
+  db: D1Database,
+  productId: string
+): Promise<ProductWithImages | null> {
+  const result = await db
+    .prepare('SELECT * FROM products WHERE id = ?')
+    .bind(productId)
+    .first<Product>();
+
+  return result ? toProductWithImages(result) : null;
+}
+
+/**
+ * Get distinct categories for a business
+ */
+export async function getCategories(
+  db: D1Database,
+  businessId: string
+): Promise<string[]> {
+  const result = await db
+    .prepare('SELECT DISTINCT category FROM products WHERE business_id = ? AND category IS NOT NULL ORDER BY category')
+    .bind(businessId)
+    .all<{ category: string }>();
+
+  return (result.results || []).map(r => r.category);
+}
+
+/**
+ * Create a new product
+ */
+export async function createProduct(
+  db: D1Database,
+  product: {
+    business_id: string;
+    name: string;
+    description?: string | null;
+    price?: number | null;
+    currency?: string;
+    category?: string | null;
+    in_stock?: number;
+    stock_quantity?: number | null;
+    metadata?: string | null;
+    image_urls?: string[];
+  }
+): Promise<ProductWithImages> {
+  const id = `prod-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  const now = Math.floor(Date.now() / 1000);
+
+  const imageUrl = product.image_urls && product.image_urls.length > 0
+    ? JSON.stringify(product.image_urls)
+    : null;
+
+  await db
+    .prepare(`
+      INSERT INTO products (
+        id, business_id, name, description, price, currency,
+        category, in_stock, stock_quantity, metadata, image_url,
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .bind(
+      id,
+      product.business_id,
+      product.name,
+      product.description ?? null,
+      product.price ?? null,
+      product.currency ?? 'USD',
+      product.category ?? null,
+      product.in_stock ?? 1,
+      product.stock_quantity ?? null,
+      product.metadata ?? null,
+      imageUrl,
+      now,
+      now
+    )
+    .run();
+
+  return {
+    id,
+    business_id: product.business_id,
+    name: product.name,
+    description: product.description ?? null,
+    price: product.price ?? null,
+    currency: product.currency ?? 'USD',
+    category: product.category ?? null,
+    in_stock: product.in_stock ?? 1,
+    stock_quantity: product.stock_quantity ?? null,
+    metadata: product.metadata ?? null,
+    image_url: imageUrl,
+    image_urls: product.image_urls ?? [],
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+/**
+ * Update a product
+ */
+export async function updateProduct(
+  db: D1Database,
+  productId: string,
+  updates: {
+    name?: string;
+    description?: string | null;
+    price?: number | null;
+    currency?: string;
+    category?: string | null;
+    in_stock?: number;
+    stock_quantity?: number | null;
+    metadata?: string | null;
+    image_urls?: string[];
+  }
+): Promise<void> {
+  const fields: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  if (updates.name !== undefined) {
+    fields.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.description !== undefined) {
+    fields.push('description = ?');
+    values.push(updates.description);
+  }
+  if (updates.price !== undefined) {
+    fields.push('price = ?');
+    values.push(updates.price);
+  }
+  if (updates.currency !== undefined) {
+    fields.push('currency = ?');
+    values.push(updates.currency);
+  }
+  if (updates.category !== undefined) {
+    fields.push('category = ?');
+    values.push(updates.category);
+  }
+  if (updates.in_stock !== undefined) {
+    fields.push('in_stock = ?');
+    values.push(updates.in_stock);
+  }
+  if (updates.stock_quantity !== undefined) {
+    fields.push('stock_quantity = ?');
+    values.push(updates.stock_quantity);
+  }
+  if (updates.metadata !== undefined) {
+    fields.push('metadata = ?');
+    values.push(updates.metadata);
+  }
+  if (updates.image_urls !== undefined) {
+    fields.push('image_url = ?');
+    values.push(updates.image_urls.length > 0 ? JSON.stringify(updates.image_urls) : null);
+  }
+
+  if (fields.length === 0) return;
+
+  fields.push('updated_at = ?');
+  values.push(Math.floor(Date.now() / 1000));
+  values.push(productId);
+
+  await db
+    .prepare(`UPDATE products SET ${fields.join(', ')} WHERE id = ?`)
+    .bind(...values)
+    .run();
+}
+
+/**
+ * Delete a product
+ */
+export async function deleteProduct(
+  db: D1Database,
+  productId: string
+): Promise<void> {
+  await db
+    .prepare('DELETE FROM products WHERE id = ?')
+    .bind(productId)
+    .run();
+}
+
+/**
+ * Toggle product stock status
+ */
+export async function toggleProductStock(
+  db: D1Database,
+  productId: string,
+  inStock: boolean
+): Promise<void> {
+  await db
+    .prepare('UPDATE products SET in_stock = ?, updated_at = ? WHERE id = ?')
+    .bind(inStock ? 1 : 0, Math.floor(Date.now() / 1000), productId)
     .run();
 }
