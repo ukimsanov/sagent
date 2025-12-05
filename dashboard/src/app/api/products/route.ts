@@ -66,7 +66,17 @@ export async function POST(request: NextRequest) {
     const db = await getDB();
     const businessId = await getUserBusinessId(db, user.id);
 
-    const body = await request.json();
+    const body = await request.json() as {
+      name?: string;
+      description?: string;
+      price?: number | string;
+      currency?: string;
+      category?: string;
+      in_stock?: boolean | number;
+      stock_quantity?: number | string;
+      metadata?: Record<string, unknown>;
+      image_urls?: string[];
+    };
 
     // Validate required fields
     if (!body.name || typeof body.name !== "string" || body.name.trim() === "") {
@@ -80,11 +90,11 @@ export async function POST(request: NextRequest) {
       business_id: businessId,
       name: body.name.trim(),
       description: body.description || null,
-      price: body.price !== undefined ? parseFloat(body.price) : null,
+      price: body.price !== undefined ? Number(body.price) : null,
       currency: body.currency || "USD",
       category: body.category || null,
       in_stock: body.in_stock !== undefined ? (body.in_stock ? 1 : 0) : 1,
-      stock_quantity: body.stock_quantity !== undefined ? parseInt(body.stock_quantity, 10) : null,
+      stock_quantity: body.stock_quantity !== undefined ? Number(body.stock_quantity) : null,
       metadata: body.metadata ? JSON.stringify(body.metadata) : null,
       image_urls: body.image_urls || [],
     });

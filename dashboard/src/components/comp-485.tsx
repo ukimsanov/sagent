@@ -235,8 +235,8 @@ export default function Component() {
       const res = await fetch(
         "https://raw.githubusercontent.com/origin-space/origin-images/refs/heads/main/users-01_fertyx.json",
       );
-      const data = await res.json();
-      setData(data);
+      const jsonData = await res.json() as Item[];
+      setData(jsonData);
     }
     fetchPosts();
   }, []);

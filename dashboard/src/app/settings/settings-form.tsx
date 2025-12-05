@@ -4,7 +4,13 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Check, Loader2 } from "lucide-react";
@@ -101,13 +107,17 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
         <div className="space-y-2">
           <Label htmlFor="brand_tone">Brand Tone</Label>
           <Select
-            id="brand_tone"
             value={data.brand_tone as string}
-            onChange={(e) => handleChange("brand_tone", e.target.value)}
+            onValueChange={(value) => handleChange("brand_tone", value)}
           >
-            <option value="friendly">Friendly - Warm and approachable</option>
-            <option value="professional">Professional - Formal and business-like</option>
-            <option value="casual">Casual - Relaxed and informal</option>
+            <SelectTrigger id="brand_tone">
+              <SelectValue placeholder="Select a tone" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="friendly">Friendly - Warm and approachable</SelectItem>
+              <SelectItem value="professional">Professional - Formal and business-like</SelectItem>
+              <SelectItem value="casual">Casual - Relaxed and informal</SelectItem>
+            </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
             This affects how the AI agent writes responses
@@ -183,14 +193,18 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
         <div className="space-y-2">
           <Label htmlFor="auto_handoff_threshold">Auto-Handoff Threshold</Label>
           <Select
-            id="auto_handoff_threshold"
             value={String(data.auto_handoff_threshold)}
-            onChange={(e) => handleChange("auto_handoff_threshold", parseInt(e.target.value))}
+            onValueChange={(value) => handleChange("auto_handoff_threshold", parseInt(value))}
           >
-            <option value="2">After 2 clarifying questions</option>
-            <option value="3">After 3 clarifying questions</option>
-            <option value="4">After 4 clarifying questions</option>
-            <option value="5">After 5 clarifying questions</option>
+            <SelectTrigger id="auto_handoff_threshold">
+              <SelectValue placeholder="Select threshold" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="2">After 2 clarifying questions</SelectItem>
+              <SelectItem value="3">After 3 clarifying questions</SelectItem>
+              <SelectItem value="4">After 4 clarifying questions</SelectItem>
+              <SelectItem value="5">After 5 clarifying questions</SelectItem>
+            </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
             Automatically escalate if the AI asks too many clarifying questions
@@ -236,22 +250,26 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
         <div className="space-y-2">
           <Label htmlFor="timezone">Timezone</Label>
           <Select
-            id="timezone"
             value={data.timezone as string}
-            onChange={(e) => handleChange("timezone", e.target.value)}
+            onValueChange={(value) => handleChange("timezone", value)}
           >
-            <option value="America/New_York">Eastern Time (ET)</option>
-            <option value="America/Chicago">Central Time (CT)</option>
-            <option value="America/Denver">Mountain Time (MT)</option>
-            <option value="America/Los_Angeles">Pacific Time (PT)</option>
-            <option value="America/Phoenix">Arizona (no DST)</option>
-            <option value="America/Anchorage">Alaska Time</option>
-            <option value="Pacific/Honolulu">Hawaii Time</option>
-            <option value="Europe/London">London (GMT/BST)</option>
-            <option value="Europe/Paris">Central European Time</option>
-            <option value="Asia/Tokyo">Japan Time</option>
-            <option value="Asia/Shanghai">China Time</option>
-            <option value="Australia/Sydney">Sydney Time</option>
+            <SelectTrigger id="timezone">
+              <SelectValue placeholder="Select timezone" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="America/New_York">Eastern Time (ET)</SelectItem>
+              <SelectItem value="America/Chicago">Central Time (CT)</SelectItem>
+              <SelectItem value="America/Denver">Mountain Time (MT)</SelectItem>
+              <SelectItem value="America/Los_Angeles">Pacific Time (PT)</SelectItem>
+              <SelectItem value="America/Phoenix">Arizona (no DST)</SelectItem>
+              <SelectItem value="America/Anchorage">Alaska Time</SelectItem>
+              <SelectItem value="Pacific/Honolulu">Hawaii Time</SelectItem>
+              <SelectItem value="Europe/London">London (GMT/BST)</SelectItem>
+              <SelectItem value="Europe/Paris">Central European Time</SelectItem>
+              <SelectItem value="Asia/Tokyo">Japan Time</SelectItem>
+              <SelectItem value="Asia/Shanghai">China Time</SelectItem>
+              <SelectItem value="Australia/Sydney">Sydney Time</SelectItem>
+            </SelectContent>
           </Select>
         </div>
 

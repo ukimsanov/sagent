@@ -64,7 +64,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    const body = await request.json();
+    interface ProductUpdateBody {
+      name?: string;
+      description?: string | null;
+      price?: number | string | null;
+      currency?: string;
+      category?: string | null;
+      in_stock?: boolean | number;
+      stock_quantity?: number | string | null;
+      metadata?: Record<string, unknown> | null;
+      image_urls?: string[];
+    }
+
+    const body = await request.json() as ProductUpdateBody;
 
     // Build updates object
     const updates: {
@@ -94,7 +106,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     if (body.price !== undefined) {
-      updates.price = body.price !== null ? parseFloat(body.price) : null;
+      updates.price = body.price !== null ? Number(body.price) : null;
     }
 
     if (body.currency !== undefined) {
@@ -110,7 +122,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     if (body.stock_quantity !== undefined) {
-      updates.stock_quantity = body.stock_quantity !== null ? parseInt(body.stock_quantity, 10) : null;
+      updates.stock_quantity = body.stock_quantity !== null ? Number(body.stock_quantity) : null;
     }
 
     if (body.metadata !== undefined) {
@@ -190,10 +202,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    const body = await request.json();
+    const body = await request.json() as { in_stock?: number | boolean };
 
     if (body.in_stock !== undefined) {
-      await toggleProductStock(db, id, body.in_stock);
+      await toggleProductStock(db, id, Boolean(body.in_stock));
     }
 
     // Fetch and return the updated product
