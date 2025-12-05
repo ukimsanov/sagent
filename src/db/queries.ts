@@ -299,6 +299,37 @@ export async function getAllCategories(
   return (result.results || []).map((r: { category: string }) => r.category);
 }
 
+/**
+ * Phase 3: Get top products from each category for catalog overview
+ * Returns up to `perCategory` products per category, sorted by price (popular proxy)
+ */
+export async function getTopProductsPerCategory(
+  db: D1Database,
+  businessId: string,
+  perCategory: number = 2
+): Promise<Map<string, ProductWithMetadata[]>> {
+  // Get all categories
+  const categories = await getAllCategories(db, businessId);
+  const result = new Map<string, ProductWithMetadata[]>();
+
+  // Get top products per category (in stock, sorted by price desc)
+  for (const category of categories) {
+    const products = await db
+      .prepare(`
+        SELECT * FROM products
+        WHERE business_id = ? AND category = ? AND in_stock = 1
+        ORDER BY price DESC
+        LIMIT ?
+      `)
+      .bind(businessId, category, perCategory)
+      .all<Product>();
+
+    result.set(category, (products.results || []).map(parseProductMetadata));
+  }
+
+  return result;
+}
+
 function parseProductMetadata(product: Product): ProductWithMetadata {
   return {
     ...product,

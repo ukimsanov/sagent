@@ -16,6 +16,7 @@ import {
   isWithinBusinessHours,
   containsEscalationKeyword,
   getProductsByIds,
+  getTopProductsPerCategory,
 } from '../db/queries';
 import type { Business, Lead, ProductWithMetadata, ConversationSummary } from '../db/queries';
 
@@ -219,6 +220,77 @@ function getVagueRequestClarification(brandTone: 'friendly' | 'professional' | '
 }
 
 // ============================================================================
+// Phase 3: Catalog Inquiry Detection
+// ============================================================================
+
+/**
+ * Patterns for general catalog inquiries where user wants to see what's available
+ * These should show top products per category, not run a search
+ */
+const CATALOG_INQUIRY_PATTERNS = [
+  /what (do you|have you|you) (have|got|carry|sell)/i,
+  /show me (everything|all|your (stuff|products|items|catalog))/i,
+  /what('s| is) available/i,
+  /what can i (get|buy|order|see)/i,
+  /what do you guys (have|sell|offer)/i,
+  /let me see (what you have|everything|your stuff)/i,
+  /browse|catalog|inventory/i,
+];
+
+/**
+ * Detect general catalog inquiries like:
+ * - "what do you have?"
+ * - "show me everything"
+ * - "what's available?"
+ * - "what do you guys sell?"
+ */
+function isCatalogInquiry(message: string): boolean {
+  const normalized = message.toLowerCase().trim();
+  return CATALOG_INQUIRY_PATTERNS.some(pattern => pattern.test(normalized));
+}
+
+/**
+ * Build a proactive catalog overview response showing top products per category
+ */
+function buildCatalogOverviewResponse(
+  categoryProducts: Map<string, ProductWithMetadata[]>,
+  brandTone: 'friendly' | 'professional' | 'casual',
+  leadName: string | null
+): string {
+  const greeting = leadName ? `Hey ${leadName}! ` : '';
+
+  const toneIntros = {
+    friendly: `${greeting}Here's what we've got for you! 🛍️\n\n`,
+    professional: `${greeting}Here's an overview of our current collection:\n\n`,
+    casual: `${greeting}Here's what we're working with:\n\n`,
+  };
+
+  let response = toneIntros[brandTone];
+
+  // Build category sections
+  for (const [category, products] of categoryProducts) {
+    if (products.length === 0) continue;
+
+    response += `*${category}*\n`;
+    for (const product of products) {
+      const price = product.price ? ` - $${product.price.toFixed(2)}` : '';
+      response += `• ${product.name}${price}\n`;
+    }
+    response += '\n';
+  }
+
+  // Add call-to-action
+  const ctas = {
+    friendly: "Anything catching your eye? Just let me know what you'd like to check out! 👀",
+    professional: "Would you like more details on any of these items?",
+    casual: "See anything you like? Just say the word!",
+  };
+
+  response += ctas[brandTone];
+  return response;
+}
+
+// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -316,6 +388,44 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
       flaggedForHuman: false,
       intentType: 'vague_request',
     };
+  }
+
+  // =========================================================================
+  // FAST PATH: Catalog inquiry → show top products per category (no LLM)
+  // This catches "what do you have?", "show me everything", etc.
+  // and proactively shows products instead of treating it as a search query.
+  // =========================================================================
+  if (isCatalogInquiry(messageText)) {
+    console.log('⚡ Fast-path: catalog inquiry → showing top products per category');
+    try {
+      const categoryProducts = await getTopProductsPerCategory(ctx.db, ctx.businessId, 2);
+
+      if (categoryProducts.size > 0) {
+        const response = buildCatalogOverviewResponse(
+          categoryProducts,
+          config.brandTone,
+          ctx.lead.name
+        );
+
+        // Collect all product IDs for tracking
+        const allProductIds: string[] = [];
+        for (const products of categoryProducts.values()) {
+          allProductIds.push(...products.map(p => p.id));
+        }
+
+        return {
+          message: response,
+          action: 'show_products',
+          flaggedForHuman: false,
+          intentType: 'catalog_inquiry',
+          productsShown: allProductIds,
+        };
+      }
+      // If no products, fall through to LLM path
+      console.log('⚠️ No products found for catalog inquiry, falling through to LLM');
+    } catch (error) {
+      console.error('❌ Catalog inquiry error, falling through to LLM:', error);
+    }
   }
 
   // =========================================================================

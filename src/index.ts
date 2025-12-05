@@ -458,6 +458,63 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
       }), { headers: jsonHeaders });
     }
 
+    // POST /admin/embed/test-message - Test full message handling (bypasses WhatsApp)
+    if (url.pathname === '/admin/embed/test-message' && request.method === 'POST') {
+      const body = await request.json() as { business_id?: string; text?: string; from?: string };
+      if (!body.business_id || !body.text) {
+        return new Response(JSON.stringify({ error: 'business_id and text required' }), {
+          status: 400,
+          headers: jsonHeaders
+        });
+      }
+
+      // Get business
+      const business = await db.getBusinessById(env.DB, body.business_id);
+      if (!business) {
+        return new Response(JSON.stringify({ error: 'Business not found' }), {
+          status: 404,
+          headers: jsonHeaders
+        });
+      }
+
+      // Get or create a test lead
+      const testPhone = body.from || 'test-user-12345';
+      const lead = await db.getOrCreateLead(env.DB, business.id, testPhone);
+
+      // Get conversation history from Durable Object
+      const conversation = await getConversation(
+        env.CONVERSATION_DO,
+        business.id,
+        testPhone,
+        lead.id
+      );
+      const conversationSummary = await db.getConversationSummary(env.DB, lead.id);
+
+      // Call the handler directly
+      const response = await handleMessage({
+        db: env.DB,
+        businessId: business.id,
+        business,
+        lead,
+        messageText: body.text,
+        openaiApiKey: env.OPENAI_API_KEY,
+        conversationHistory: formatMessagesForLLM(conversation),
+        conversationSummary,
+        ai: env.AI,
+        productVectors: env.PRODUCT_VECTORS,
+      });
+
+      return new Response(JSON.stringify({
+        success: true,
+        input: body.text,
+        response: response.message,
+        action: response.action,
+        intentType: response.intentType,
+        productsShown: response.productsShown,
+        flaggedForHuman: response.flaggedForHuman,
+      }), { headers: jsonHeaders });
+    }
+
     // Unknown embed endpoint
     return new Response(JSON.stringify({ error: 'Unknown embed endpoint' }), {
       status: 404,

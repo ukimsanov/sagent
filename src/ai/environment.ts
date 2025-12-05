@@ -301,14 +301,38 @@ export function isProductQuery(message: string): boolean {
 
 /**
  * Check if message needs product search
+ *
+ * Strategy: Default to searching. With semantic search, it's cheap
+ * and better to have product context than to miss a product query.
  */
 export function needsProductSearch(message: string): boolean {
-  // Skip for pure greetings/thanks
-  const pureGreetings = /^(hi|hello|hey|yo|sup|good\s+(morning|afternoon|evening)|thanks?|thank\s+you|thx|ty|bye|goodbye|see\s+ya)$/i;
-  if (pureGreetings.test(message.trim())) {
+  const trimmed = message.trim().toLowerCase();
+
+  // Skip for pure greetings/thanks/farewell
+  const pureGreetings = /^(hi|hello|hey|yo|sup|good\s+(morning|afternoon|evening)|thanks?|thank\s+you|thx|ty|bye|goodbye|see\s+ya|later)[\s!.]*$/i;
+  if (pureGreetings.test(trimmed)) {
     return false;
   }
 
-  // Check for product indicators
-  return isProductQuery(message);
+  // Skip for pure questions about non-product things
+  const nonProductQuestions = /^(how are you|what's up|what is your name|who are you|are you real|are you a bot|how do I contact|what are your hours|when are you open)/i;
+  if (nonProductQuestions.test(trimmed)) {
+    return false;
+  }
+
+  // For short messages (1-3 words), assume they might be product names/categories
+  // e.g., "hoodies", "black t-shirt", "size large"
+  const wordCount = trimmed.split(/\s+/).length;
+  if (wordCount <= 3) {
+    return true;
+  }
+
+  // Check for explicit product indicators
+  if (isProductQuery(message)) {
+    return true;
+  }
+
+  // Default: search anyway - semantic search will handle relevance
+  // This catches "let's go for some hoodies" etc.
+  return true;
 }
