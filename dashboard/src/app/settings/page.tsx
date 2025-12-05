@@ -3,7 +3,7 @@ import { getDB, getBusinessById } from "@/lib/db";
 import { getUserBusinessId } from "@/lib/auth-utils";
 import { SettingsForm } from "./settings-form";
 import { BlurFade } from "@/components/ui/blur-fade";
-import { MessageSquare, Users, Clock, Settings } from "lucide-react";
+import { MessageSquare, Users, Clock, Settings, Power } from "lucide-react";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 
@@ -52,8 +52,36 @@ export default async function SettingsPage() {
       </BlurFade>
 
       <div className="grid gap-6">
-        {/* Brand Voice */}
+        {/* AI Status */}
         <BlurFade delay={0.1}>
+          <Card className="transition-all duration-200 hover:shadow-md">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-chart-1/10 flex items-center justify-center">
+                  <Power className="h-4 w-4 text-chart-1" />
+                </div>
+                <div>
+                  <CardTitle>AI Status</CardTitle>
+                  <CardDescription>
+                    Control whether the AI agent responds to messages
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <SettingsForm
+                businessId={business.id}
+                section="status"
+                initialData={{
+                  ai_enabled: business.ai_enabled ?? 1,
+                }}
+              />
+            </CardContent>
+          </Card>
+        </BlurFade>
+
+        {/* Brand Voice */}
+        <BlurFade delay={0.15}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -113,7 +141,7 @@ export default async function SettingsPage() {
         </BlurFade>
 
         {/* Store Hours */}
-        <BlurFade delay={0.3}>
+        <BlurFade delay={0.25}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">

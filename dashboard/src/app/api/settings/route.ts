@@ -6,6 +6,7 @@ import { getDB, updateBusinessConfig } from "@/lib/db";
 
 interface SettingsBody {
   businessId: string;
+  ai_enabled?: number;
   brand_tone?: string;
   greeting_template?: string;
   handoff_email?: string;
@@ -33,6 +34,11 @@ export async function POST(request: NextRequest) {
 
     // Build the config object with only the fields that were provided
     const updateConfig: Record<string, string | number | null> = {};
+
+    // AI status
+    if (config.ai_enabled !== undefined) {
+      updateConfig.ai_enabled = config.ai_enabled;
+    }
 
     // Brand settings
     if (config.brand_tone !== undefined) {

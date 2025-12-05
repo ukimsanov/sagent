@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Check, Loader2 } from "lucide-react";
 
-type Section = "brand" | "handoff" | "hours";
+type Section = "status" | "brand" | "handoff" | "hours";
 
 interface SettingsFormProps {
   businessId: string;
@@ -47,6 +48,52 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
       setSaving(false);
     }
   };
+
+  if (section === "status") {
+    const handleToggle = async (checked: boolean) => {
+      const newValue = checked ? 1 : 0;
+      setData((prev) => ({ ...prev, ai_enabled: newValue }));
+      setSaving(true);
+
+      try {
+        const response = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ businessId, ai_enabled: newValue }),
+        });
+
+        if (response.ok) {
+          setSaved(true);
+          setTimeout(() => setSaved(false), 3000);
+        }
+      } catch (error) {
+        console.error("Failed to save settings:", error);
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    return (
+      <div className="flex items-center justify-between">
+        <div className="space-y-0.5">
+          <Label htmlFor="ai_enabled" className="text-base">AI Agent Active</Label>
+          <p className="text-sm text-muted-foreground">
+            When disabled, the AI won&apos;t respond to WhatsApp messages
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          {saved && <Check className="h-4 w-4 text-green-500" />}
+          <Switch
+            id="ai_enabled"
+            checked={data.ai_enabled === 1}
+            onCheckedChange={handleToggle}
+            disabled={saving}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (section === "brand") {
     return (

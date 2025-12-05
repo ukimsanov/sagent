@@ -67,6 +67,8 @@ export interface Business {
   auto_handoff_threshold: number | null;
   working_hours: string | null;
   timezone: string | null;
+  // Phase 6: AI enable/disable toggle
+  ai_enabled: number; // 0 = disabled, 1 = enabled (default)
 }
 
 /**
@@ -452,6 +454,7 @@ export async function updateBusinessConfig(
   db: D1Database,
   businessId: string,
   config: {
+    ai_enabled?: number;
     brand_tone?: string;
     greeting_template?: string | null;
     escalation_keywords?: string | null;
@@ -466,6 +469,10 @@ export async function updateBusinessConfig(
   const updates: string[] = [];
   const values: (string | number | null)[] = [];
 
+  if (config.ai_enabled !== undefined) {
+    updates.push('ai_enabled = ?');
+    values.push(config.ai_enabled);
+  }
   if (config.brand_tone !== undefined) {
     updates.push('brand_tone = ?');
     values.push(config.brand_tone);

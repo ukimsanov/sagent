@@ -36,6 +36,7 @@ export interface Business {
   handoff_email: string | null;
   handoff_phone: string | null;
   auto_handoff_threshold: number;
+  ai_enabled: number; // 0 = disabled, 1 = enabled (default)
 
   created_at: number;
   updated_at: number;

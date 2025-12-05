@@ -539,6 +539,17 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
         });
       }
 
+      // Check if AI is enabled (allow test endpoint to still work for debugging)
+      if (business.ai_enabled === 0) {
+        return new Response(JSON.stringify({
+          success: true,
+          input: body.text,
+          response: null,
+          action: 'skipped',
+          message: 'AI is disabled for this business'
+        }), { headers: jsonHeaders });
+      }
+
       // Get or create a test lead
       const testPhone = body.from || 'test-user-12345';
       const lead = await db.getOrCreateLead(env.DB, business.id, testPhone);
@@ -781,6 +792,16 @@ async function processMessage(
     messageId: string; // WhatsApp message ID for DLQ traceability
   }
 ): Promise<void> {
+  // Phase 6: Check if AI is enabled for this business
+  // ai_enabled defaults to 1 (enabled), so we only skip if explicitly set to 0
+  if (business.ai_enabled === 0) {
+    safeLog('info', 'AI disabled for business, skipping message', {
+      businessId: business.id,
+      phone: maskPhoneNumber(message.from),
+    });
+    return; // Silent - don't respond when AI is disabled
+  }
+
   // Get or create lead
   const lead = await db.getOrCreateLead(env.DB, business.id, message.from);
 
