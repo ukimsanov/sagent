@@ -412,6 +412,52 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
       }), { headers: jsonHeaders });
     }
 
+    // POST /admin/embed/test-search - Test semantic search
+    if (url.pathname === '/admin/embed/test-search' && request.method === 'POST') {
+      const body = await request.json() as { business_id?: string; query?: string };
+      if (!body.business_id || !body.query) {
+        return new Response(JSON.stringify({ error: 'business_id and query required' }), {
+          status: 400,
+          headers: jsonHeaders
+        });
+      }
+
+      // Import inline to avoid circular deps
+      const { searchProductsVectorize } = await import('./ai/embeddings');
+      const { getProductsByIds } = await import('./db/queries');
+
+      const searchResult = await searchProductsVectorize(
+        env.PRODUCT_VECTORS,
+        env.AI,
+        body.business_id,
+        body.query,
+        10
+      );
+
+      if (!searchResult.success) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: searchResult.error
+        }), { status: 500, headers: jsonHeaders });
+      }
+
+      // Fetch full product data
+      const productIds = (searchResult.results || []).map(r => r.id);
+      const products = await getProductsByIds(env.DB, productIds);
+
+      return new Response(JSON.stringify({
+        success: true,
+        query: body.query,
+        results: (searchResult.results || []).map((r, i) => ({
+          id: r.id,
+          score: r.score,
+          name: products[i]?.name || r.metadata?.name,
+          category: products[i]?.category || r.metadata?.category,
+          price: products[i]?.price || r.metadata?.price,
+        }))
+      }), { headers: jsonHeaders });
+    }
+
     // Unknown embed endpoint
     return new Response(JSON.stringify({ error: 'Unknown embed endpoint' }), {
       status: 404,
