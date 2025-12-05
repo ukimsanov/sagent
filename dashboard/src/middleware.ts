@@ -10,8 +10,9 @@
  */
 
 import { authkitMiddleware } from '@workos-inc/authkit-nextjs';
+import { NextRequest, NextResponse, NextFetchEvent } from 'next/server';
 
-export default authkitMiddleware({
+const baseMiddleware = authkitMiddleware({
   debug: true, // Enable debug logs to troubleshoot session issues
   middlewareAuth: {
     enabled: true,
@@ -22,6 +23,33 @@ export default authkitMiddleware({
     ],
   },
 });
+
+export default async function middleware(request: NextRequest, event: NextFetchEvent) {
+  const { pathname } = request.nextUrl;
+  const cookies = request.cookies.getAll();
+  const sessionCookie = cookies.find(c => c.name.includes('wos-session'));
+
+  console.log("[MIDDLEWARE] ================================");
+  console.log("[MIDDLEWARE] Path:", pathname);
+  console.log("[MIDDLEWARE] Method:", request.method);
+  console.log("[MIDDLEWARE] Has session cookie:", !!sessionCookie);
+  console.log("[MIDDLEWARE] Cookie names:", cookies.map(c => c.name).join(', '));
+  console.log("[MIDDLEWARE] Referer:", request.headers.get('referer'));
+  console.log("[MIDDLEWARE] Timestamp:", new Date().toISOString());
+
+  const response = await baseMiddleware(request, event);
+
+  // Log if there's a redirect
+  if (response instanceof NextResponse) {
+    const location = response.headers.get('location');
+    if (location) {
+      console.log("[MIDDLEWARE] REDIRECT TO:", location);
+    }
+  }
+
+  console.log("[MIDDLEWARE] ================================");
+  return response;
+}
 
 export const config = {
   // Match all routes except static files and API routes

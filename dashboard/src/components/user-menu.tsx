@@ -19,6 +19,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { LogOut, User as UserIcon, Settings } from "lucide-react";
 import Link from "next/link";
+import { signOutAction } from "@/lib/actions/auth";
 
 interface UserMenuProps {
   user: AuthUser;
@@ -79,10 +80,12 @@ export function UserMenu({ user }: UserMenuProps) {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/auth/logout" prefetch={false} className="flex items-center cursor-pointer text-destructive">
-            <LogOut className="mr-2 h-4 w-4" />
-            <span>Log out</span>
-          </Link>
+          <form action={signOutAction} className="w-full">
+            <button type="submit" className="flex items-center cursor-pointer text-destructive w-full">
+              <LogOut className="mr-2 h-4 w-4" />
+              <span>Log out</span>
+            </button>
+          </form>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

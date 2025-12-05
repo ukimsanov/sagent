@@ -6,8 +6,8 @@ import { Separator } from "@/components/ui/separator";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { User, Mail, Calendar, Shield, LogOut, CheckCircle2 } from "lucide-react";
+import { signOutAction } from "@/lib/actions/auth";
 
 // Force dynamic rendering for auth
 export const dynamic = "force-dynamic";
@@ -204,12 +204,12 @@ export default async function AccountPage() {
 
               {/* Sign Out */}
               <div className="pt-2">
-                <Button variant="destructive" className="w-full" asChild>
-                  <Link href="/auth/logout">
+                <form action={signOutAction}>
+                  <Button variant="destructive" className="w-full" type="submit">
                     <LogOut className="h-4 w-4 mr-2" />
                     Sign Out
-                  </Link>
-                </Button>
+                  </Button>
+                </form>
               </div>
             </CardContent>
           </Card>
