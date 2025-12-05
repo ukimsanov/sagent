@@ -17,6 +17,9 @@ import { Check, Loader2 } from "lucide-react";
 
 type Section = "status" | "brand" | "handoff" | "hours";
 
+const GREETING_MAX_LENGTH = 300;
+const AFTER_HOURS_MAX_LENGTH = 500;
+
 interface SettingsFormProps {
   businessId: string;
   section: Section;
@@ -79,32 +82,42 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
       }
     };
 
+    // comp-186 card switch pattern
     return (
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <Label htmlFor="ai_enabled" className="text-base">AI Agent Active</Label>
-          <p className="text-sm text-muted-foreground">
+      <div className="relative flex w-full items-start gap-2 rounded-md border border-input p-4 shadow-xs outline-none has-data-[state=checked]:border-primary/50">
+        <Switch
+          id="ai_enabled"
+          aria-describedby="ai_enabled-description"
+          className="data-[state=checked]:[&_span]:rtl:-translate-x-2 order-1 h-4 w-6 after:absolute after:inset-0 [&_span]:size-3 data-[state=checked]:[&_span]:translate-x-2"
+          checked={data.ai_enabled === 1}
+          onCheckedChange={handleToggle}
+          disabled={saving}
+        />
+        <div className="grid grow gap-2">
+          <Label htmlFor="ai_enabled" className="flex items-center gap-2">
+            AI Agent Active
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            {saved && <Check className="h-3.5 w-3.5 text-green-500" />}
+          </Label>
+          <p
+            className="text-muted-foreground text-xs"
+            id="ai_enabled-description"
+          >
             When disabled, the AI won&apos;t respond to WhatsApp messages
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-          {saved && <Check className="h-4 w-4 text-green-500" />}
-          <Switch
-            id="ai_enabled"
-            checked={data.ai_enabled === 1}
-            onCheckedChange={handleToggle}
-            disabled={saving}
-          />
         </div>
       </div>
     );
   }
 
   if (section === "brand") {
+    const greetingLength = (data.greeting_template as string)?.length || 0;
+    const greetingCharsLeft = GREETING_MAX_LENGTH - greetingLength;
+
     return (
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
+        {/* Brand Tone - comp-02 pattern */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="brand_tone">Brand Tone</Label>
           <Select
             value={data.brand_tone as string}
@@ -124,18 +137,35 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
           </p>
         </div>
 
-        <div className="space-y-2">
+        {/* Greeting Template - comp-74 pattern with character counter */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="greeting_template">Custom Greeting Template</Label>
           <Textarea
             id="greeting_template"
+            aria-describedby="greeting_template-counter"
             placeholder="Hi {{name}}! Welcome to our store. How can I help you today?"
             value={data.greeting_template as string}
-            onChange={(e) => handleChange("greeting_template", e.target.value)}
+            onChange={(e) => {
+              if (e.target.value.length <= GREETING_MAX_LENGTH) {
+                handleChange("greeting_template", e.target.value);
+              }
+            }}
+            maxLength={GREETING_MAX_LENGTH}
             rows={3}
           />
-          <p className="text-xs text-muted-foreground">
-            Use {"{{name}}"} to include the customer&apos;s name. Leave empty for default greeting.
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs text-muted-foreground">
+              Use {"{{name}}"} to include the customer&apos;s name
+            </p>
+            <p
+              aria-live="polite"
+              className="text-right text-muted-foreground text-xs tabular-nums"
+              id="greeting_template-counter"
+              role="status"
+            >
+              {greetingCharsLeft} left
+            </p>
+          </div>
         </div>
 
         <Button type="submit" disabled={saving}>
@@ -161,7 +191,8 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
     return (
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
+          {/* Handoff Email */}
+          <div className="*:not-first:mt-2">
             <Label htmlFor="handoff_email">Handoff Email</Label>
             <Input
               id="handoff_email"
@@ -171,11 +202,12 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
               onChange={(e) => handleChange("handoff_email", e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Receives notification when a conversation is escalated
+              Receives notification when escalated
             </p>
           </div>
 
-          <div className="space-y-2">
+          {/* Handoff Phone */}
+          <div className="*:not-first:mt-2">
             <Label htmlFor="handoff_phone">Handoff Phone</Label>
             <Input
               id="handoff_phone"
@@ -185,12 +217,13 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
               onChange={(e) => handleChange("handoff_phone", e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Shown to customers when they request human support
+              Shown when customers request help
             </p>
           </div>
         </div>
 
-        <div className="space-y-2">
+        {/* Auto-Handoff Threshold */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="auto_handoff_threshold">Auto-Handoff Threshold</Label>
           <Select
             value={String(data.auto_handoff_threshold)}
@@ -207,11 +240,12 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Automatically escalate if the AI asks too many clarifying questions
+            Auto-escalate if AI asks too many clarifying questions
           </p>
         </div>
 
-        <div className="space-y-2">
+        {/* Escalation Keywords */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="escalation_keywords">Escalation Keywords</Label>
           <Textarea
             id="escalation_keywords"
@@ -221,7 +255,7 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
             rows={2}
           />
           <p className="text-xs text-muted-foreground">
-            Comma-separated keywords that trigger immediate handoff (e.g., &quot;lawyer, refund, complaint&quot;)
+            Comma-separated keywords that trigger immediate handoff
           </p>
         </div>
 
@@ -245,9 +279,13 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
   }
 
   if (section === "hours") {
+    const afterHoursLength = (data.after_hours_message as string)?.length || 0;
+    const afterHoursCharsLeft = AFTER_HOURS_MAX_LENGTH - afterHoursLength;
+
     return (
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
+        {/* Timezone */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="timezone">Timezone</Label>
           <Select
             value={data.timezone as string}
@@ -273,7 +311,8 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
           </Select>
         </div>
 
-        <div className="space-y-2">
+        {/* Working Hours */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="working_hours">Working Hours (JSON)</Label>
           <Textarea
             id="working_hours"
@@ -284,22 +323,39 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            JSON format: {`{"mon":"9:00-18:00", ...}`}. Days without entries are considered closed.
+            JSON format: {`{"mon":"9:00-18:00", ...}`}. Missing days = closed.
           </p>
         </div>
 
-        <div className="space-y-2">
+        {/* After Hours Message - with character counter */}
+        <div className="*:not-first:mt-2">
           <Label htmlFor="after_hours_message">After Hours Message</Label>
           <Textarea
             id="after_hours_message"
-            placeholder="Thanks for reaching out! We're currently closed but will respond during business hours (Mon-Fri 9am-6pm ET). Feel free to browse our catalog in the meantime!"
+            aria-describedby="after_hours_message-counter"
+            placeholder="Thanks for reaching out! We're currently closed but will respond during business hours. Feel free to browse our catalog!"
             value={data.after_hours_message as string}
-            onChange={(e) => handleChange("after_hours_message", e.target.value)}
+            onChange={(e) => {
+              if (e.target.value.length <= AFTER_HOURS_MAX_LENGTH) {
+                handleChange("after_hours_message", e.target.value);
+              }
+            }}
+            maxLength={AFTER_HOURS_MAX_LENGTH}
             rows={3}
           />
-          <p className="text-xs text-muted-foreground">
-            Message shown to customers outside business hours. Leave empty to respond 24/7.
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs text-muted-foreground">
+              Leave empty to respond 24/7
+            </p>
+            <p
+              aria-live="polite"
+              className="text-right text-muted-foreground text-xs tabular-nums"
+              id="after_hours_message-counter"
+              role="status"
+            >
+              {afterHoursCharsLeft} left
+            </p>
+          </div>
         </div>
 
         <Button type="submit" disabled={saving}>
