@@ -15,8 +15,12 @@ import {
   getBusinessConfig,
   isWithinBusinessHours,
   containsEscalationKeyword,
+  getProductsByIds,
 } from '../db/queries';
 import type { Business, Lead, ProductWithMetadata, ConversationSummary } from '../db/queries';
+
+// Phase 2: Semantic search
+import { searchProductsVectorize } from './embeddings';
 
 // New modules
 import { callLLMForDecision, isValidDecision, type LLMDecision, type ConversationAction } from './llm';
@@ -49,6 +53,9 @@ export interface HandlerContext {
   openaiApiKey: string;
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
   conversationSummary: ConversationSummary | null;
+  // Phase 1: Semantic search bindings (optional for backwards compatibility)
+  ai?: Ai;
+  productVectors?: VectorizeIndex;
 }
 
 export interface HandlerResponse {
@@ -327,7 +334,35 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   if (needsProductSearch(messageText)) {
     searchQuery = extractSearchQuery(messageText);
     console.log('🔍 Searching products for:', searchQuery);
-    products = await searchProducts(ctx.db, ctx.businessId, searchQuery);
+
+    // Phase 2: Use semantic search if Vectorize bindings are available
+    if (ctx.ai && ctx.productVectors) {
+      console.log('🧠 Using semantic search (Vectorize)');
+      const semanticResult = await searchProductsVectorize(
+        ctx.productVectors,
+        ctx.ai,
+        ctx.businessId,
+        searchQuery,
+        10
+      );
+
+      if (semanticResult.success && semanticResult.results && semanticResult.results.length > 0) {
+        // Fetch full product data from D1 using the ranked IDs
+        const productIds = semanticResult.results.map((r) => r.id);
+        products = await getProductsByIds(ctx.db, productIds);
+        console.log(`🧠 Semantic search found ${products.length} products`);
+      } else if (!semanticResult.success) {
+        // Semantic search failed, fall back to SQL LIKE
+        console.warn('🔄 Semantic search failed, falling back to SQL:', semanticResult.error);
+        products = await searchProducts(ctx.db, ctx.businessId, searchQuery);
+      }
+      // If semantic search returned 0 results, products stays empty (no fallback)
+    } else {
+      // Fallback: SQL LIKE search (no Vectorize bindings)
+      console.log('🔍 Using SQL LIKE search (no Vectorize)');
+      products = await searchProducts(ctx.db, ctx.businessId, searchQuery);
+    }
+
     console.log(`🔍 Found ${products.length} products`);
     // NOTE: We no longer skip LLM for 0 products.
     // LLM decides the action; executor builds the message from verified DB data.

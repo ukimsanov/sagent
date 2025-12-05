@@ -642,6 +642,7 @@ async function processMessage(
   const startTime = Date.now();
 
   // Process message with code-first handler
+  // Phase 2: Pass Vectorize and AI bindings for semantic search
   const response = await handleMessage({
     db: env.DB,
     businessId: business.id,
@@ -650,7 +651,9 @@ async function processMessage(
     messageText: message.text,
     openaiApiKey: env.OPENAI_API_KEY,
     conversationHistory: formatMessagesForLLM(conversation),
-    conversationSummary
+    conversationSummary,
+    ai: env.AI,
+    productVectors: env.PRODUCT_VECTORS,
   });
 
   const processingTime = Date.now() - startTime;
