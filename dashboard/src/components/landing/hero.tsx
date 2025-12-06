@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
+import { AvatarGroup } from "@/components/ui/avatar-group";
 import { ArrowRight, Check, Star, Play } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -249,17 +250,18 @@ export function Hero() {
 						{/* Social proof */}
 						<BlurFade delay={0.4}>
 							<div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 mb-10">
-								<div className="flex items-center gap-2">
-									<div className="flex -space-x-2">
-										{["👤", "👩", "👨", "👩‍💼"].map((emoji, i) => (
-											<div
-												key={i}
-												className="h-8 w-8 rounded-full bg-muted border-2 border-background flex items-center justify-center text-sm"
-											>
-												{emoji}
-											</div>
-										))}
-									</div>
+								<div className="flex items-center gap-3">
+									<AvatarGroup
+										avatars={[
+											{ src: "https://i.pravatar.cc/150?img=1", fallback: "JD" },
+											{ src: "https://i.pravatar.cc/150?img=5", fallback: "SM" },
+											{ src: "https://i.pravatar.cc/150?img=8", fallback: "AK" },
+											{ src: "https://i.pravatar.cc/150?img=12", fallback: "MR" },
+											{ src: "https://i.pravatar.cc/150?img=20", fallback: "LS" },
+											{ fallback: "+495" },
+										]}
+										max={5}
+									/>
 									<span className="text-sm text-muted-foreground">
 										500+ businesses
 									</span>

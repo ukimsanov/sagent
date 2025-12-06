@@ -4,7 +4,7 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { MagicCard } from "@/components/ui/magic-card";
 import { motion } from "motion/react";
 import { WhatsappIcon } from "@/components/icons/whatsapp-icon";
-import { CheckCircle2, Clock } from "lucide-react";
+import { Clock } from "lucide-react";
 
 function InstagramIcon({ className }: { className?: string }) {
 	return (
@@ -93,12 +93,15 @@ export function Channels() {
 											<channel.icon className="h-7 w-7" style={{ color: channel.color }} />
 										</motion.div>
 										{channel.status === "live" ? (
-											<span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-chart-2/10 text-chart-2 text-xs font-medium">
-												<CheckCircle2 className="h-3 w-3" />
+											<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+												<span className="relative flex h-2 w-2">
+													<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+													<span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+												</span>
 												Live
 											</span>
 										) : (
-											<span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs font-medium">
+											<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border bg-muted/50 text-muted-foreground text-xs font-medium">
 												<Clock className="h-3 w-3" />
 												{channel.eta}
 											</span>

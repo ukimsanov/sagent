@@ -267,6 +267,15 @@
   }
 }
 
+@keyframes shine {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 /* Safari-specific fixes for animations */
 @supports (-webkit-touch-callout: none) {
   .gpu-accelerated {

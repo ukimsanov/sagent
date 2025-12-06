@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BlurFade } from "@/components/ui/blur-fade";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
 interface MessageEvent {
   id: string;
@@ -24,6 +26,14 @@ interface MessageEvent {
 
 interface ConversationsTableProps {
   events: MessageEvent[];
+}
+
+type SortField = "lead_id" | "action" | "intent_type" | "timestamp" | "flagged_for_human";
+type SortDirection = "asc" | "desc" | null;
+
+interface SortState {
+  field: SortField | null;
+  direction: SortDirection;
 }
 
 function getActionBadge(action: string) {
@@ -56,22 +66,97 @@ function maskPhone(leadId: string) {
   return `+1 xxx-xxx-${last4}`;
 }
 
+function SortableHeader({
+  field,
+  label,
+  sortState,
+  onSort,
+}: {
+  field: SortField;
+  label: string;
+  sortState: SortState;
+  onSort: (field: SortField) => void;
+}) {
+  const isActive = sortState.field === field;
+  return (
+    <TableHead
+      className="cursor-pointer select-none hover:bg-muted/50 transition-colors"
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        {isActive ? (
+          sortState.direction === "asc" ? (
+            <ArrowUp className="h-4 w-4" />
+          ) : (
+            <ArrowDown className="h-4 w-4" />
+          )
+        ) : (
+          <ArrowUpDown className="h-4 w-4 text-muted-foreground/50" />
+        )}
+      </div>
+    </TableHead>
+  );
+}
+
 export function ConversationsTable({ events }: ConversationsTableProps) {
+  const [sortState, setSortState] = useState<SortState>({
+    field: null,
+    direction: null,
+  });
+
+  const handleSort = (field: SortField) => {
+    setSortState((prev) => {
+      if (prev.field === field) {
+        // Cycle: asc -> desc -> null
+        if (prev.direction === "asc") return { field, direction: "desc" };
+        if (prev.direction === "desc") return { field: null, direction: null };
+      }
+      return { field, direction: "asc" };
+    });
+  };
+
+  const sortedEvents = useMemo(() => {
+    if (!sortState.field || !sortState.direction) return events;
+
+    return [...events].sort((a, b) => {
+      const field = sortState.field!;
+      const direction = sortState.direction === "asc" ? 1 : -1;
+
+      switch (field) {
+        case "lead_id":
+          return a.lead_id.localeCompare(b.lead_id) * direction;
+        case "action":
+          return a.action.localeCompare(b.action) * direction;
+        case "intent_type":
+          const intentA = a.intent_type || "";
+          const intentB = b.intent_type || "";
+          return intentA.localeCompare(intentB) * direction;
+        case "timestamp":
+          return (a.timestamp - b.timestamp) * direction;
+        case "flagged_for_human":
+          return (a.flagged_for_human - b.flagged_for_human) * direction;
+        default:
+          return 0;
+      }
+    });
+  }, [events, sortState]);
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Lead</TableHead>
+          <SortableHeader field="lead_id" label="Lead" sortState={sortState} onSort={handleSort} />
           <TableHead>Last Message</TableHead>
-          <TableHead>Action</TableHead>
-          <TableHead>Intent</TableHead>
-          <TableHead>Time</TableHead>
-          <TableHead>Status</TableHead>
+          <SortableHeader field="action" label="Action" sortState={sortState} onSort={handleSort} />
+          <SortableHeader field="intent_type" label="Intent" sortState={sortState} onSort={handleSort} />
+          <SortableHeader field="timestamp" label="Time" sortState={sortState} onSort={handleSort} />
+          <SortableHeader field="flagged_for_human" label="Status" sortState={sortState} onSort={handleSort} />
         </TableRow>
       </TableHeader>
       <TableBody>
-        {events.length > 0 ? (
-          events.map((event, index) => (
+        {sortedEvents.length > 0 ? (
+          sortedEvents.map((event, index) => (
             <BlurFade
               key={event.id}
               delay={0.02 * index}

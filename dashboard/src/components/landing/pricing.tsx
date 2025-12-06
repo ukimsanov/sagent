@@ -94,12 +94,14 @@ export function Pricing() {
 										: "border-border/50 hover:border-border hover:shadow-lg"
 								)}
 							>
-								{/* Popular badge */}
+								{/* Popular badge with shine effect */}
 								{plan.popular && (
 									<div className="absolute -top-3 left-1/2 -translate-x-1/2">
-										<div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg">
-											<Zap className="h-3 w-3" />
-											Most Popular
+										<div className="relative inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg overflow-hidden">
+											{/* Shine effect */}
+											<span className="absolute inset-0 -translate-x-full animate-[shine_3s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+											<Zap className="h-3 w-3 relative" />
+											<span className="relative">Most Popular</span>
 										</div>
 									</div>
 								)}
