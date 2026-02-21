@@ -31,6 +31,9 @@ import {
 } from './whatsapp/messages-reliable';
 import { handleIncomingMessage as handleMessage } from './ai/handler';
 import { buildIncrementalSummaryPrompt } from './ai/prompts';
+import { generateText, Output } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { z } from 'zod';
 import { transcribeAudioMessage } from './ai/transcription';
 import { sendHandoffNotification } from './notifications/handoff';
 import * as db from './db/queries';
@@ -72,7 +75,7 @@ interface Env {
 
   // Semantic search bindings (Phase 1: AI Sales Agent Redesign)
   PRODUCT_VECTORS: VectorizeIndex; // Vectorize for semantic product search
-  AI: Ai; // Workers AI for embeddings (bge-base-en-v1.5)
+  AI: Ai; // Workers AI for embeddings (EmbeddingGemma-300m)
 
   // Environment variables
   WHATSAPP_VERIFY_TOKEN: string;
@@ -88,6 +91,10 @@ interface Env {
 
   // Phase 5: Security
   CLEANUP_SECRET?: string; // Secret for cleanup endpoint (wrangler secret put CLEANUP_SECRET)
+
+  // AI Gateway (optional - set to route OpenAI calls through Cloudflare AI Gateway)
+  // Format: https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openai
+  AI_GATEWAY_BASE_URL?: string;
 }
 
 // ============================================================================
@@ -580,6 +587,7 @@ async function handleAdminEmbed(request: Request, url: URL, env: Env): Promise<R
         lead,
         messageText: body.text,
         openaiApiKey: env.OPENAI_API_KEY,
+        aiGatewayBaseURL: env.AI_GATEWAY_BASE_URL,
         conversationHistory: formatMessagesForLLM(conversation),
         conversationSummary,
         ai: env.AI,
@@ -855,6 +863,7 @@ async function processMessage(
     lead,
     messageText: message.text,
     openaiApiKey: env.OPENAI_API_KEY,
+    aiGatewayBaseURL: env.AI_GATEWAY_BASE_URL,
     conversationHistory: formatMessagesForLLM(conversation),
     conversationSummary,
     ai: env.AI,
@@ -1140,65 +1149,41 @@ async function summarizeConversation(
   try {
     console.log(`Summarizing conversation for lead ${leadId} (${messages.length} messages, existing summary: ${existingSummary ? 'yes' : 'no'})`);
 
-    // Build the incremental prompt that merges existing summary with new messages
     const prompt = buildIncrementalSummaryPrompt(existingSummary, messages);
 
-    // Call OpenAI to extract summary (using a simple completion, not the agent)
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 500,
-        temperature: 0.3
-      })
+    const SummarySchema = z.object({
+      summary: z.string(),
+      key_interests: z.array(z.string()),
+      objections: z.array(z.string()),
+      next_steps: z.string().nullable(),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Summarization API error:', response.status, errorText);
-      throw new Error(`OpenAI API error: ${response.status}`);
+    const openai = createOpenAI({
+      apiKey: env.OPENAI_API_KEY,
+      ...(env.AI_GATEWAY_BASE_URL ? { baseURL: env.AI_GATEWAY_BASE_URL } : {}),
+    });
+
+    const { output } = await generateText({
+      model: openai.responses('gpt-5-mini'),
+      prompt,
+      output: Output.object({ schema: SummarySchema }),
+      maxOutputTokens: 500,
+      temperature: 0.3,
+    });
+
+    if (!output) {
+      console.error('Summarization returned no structured output');
+      throw new Error('No output from summarization');
     }
-
-    const result = await response.json() as {
-      choices: Array<{ message: { content: string } }>;
-    };
-
-    const content = result.choices[0]?.message?.content;
-    if (!content) {
-      console.error('Summarization returned no content');
-      throw new Error('No content in OpenAI response');
-    }
-
-    console.log('Summarization raw response:', content.substring(0, 200));
-
-    // Strip markdown code blocks if present (LLM sometimes wraps JSON in ```json ... ```)
-    let jsonContent = content.trim();
-    if (jsonContent.startsWith('```')) {
-      // Remove opening ```json or ``` and closing ```
-      jsonContent = jsonContent.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-    }
-
-    // Parse the JSON response
-    const extracted = JSON.parse(jsonContent) as {
-      summary: string;
-      key_interests: string[];
-      objections: string[];
-      next_steps: string | null;
-    };
 
     // Store the summary with H7 FIX: pass message count for race condition prevention
     const wasUpdated = await db.upsertConversationSummary(
       env.DB,
       leadId,
-      extracted.summary,
-      extracted.key_interests || [],
-      extracted.objections || [],
-      extracted.next_steps,
+      output.summary,
+      output.key_interests || [],
+      output.objections || [],
+      output.next_steps,
       messages.length // H7 FIX: Track message count to prevent stale overwrites
     );
 

@@ -1,167 +1,75 @@
 /**
- * LLM Decision Engine - Structured Output Wrapper
+ * LLM Decision Engine - Structured Output via Vercel AI SDK
  *
- * Uses OpenAI Responses API with JSON Schema for guaranteed structured output.
+ * Uses AI SDK with OpenAI Responses API for provider-agnostic structured output.
  * The LLM is the decision engine; code validates and executes.
  *
- * Sources:
- * - https://platform.openai.com/docs/guides/structured-outputs
- * - https://jamesmccaffreyblog.com/2025/11/04/example-of-openai-responses-api-structured-output-using-json-schema/
+ * Benefits over raw fetch:
+ * - Zod schema = single source of truth for types + validation
+ * - Provider switching is one-line (swap openai for anthropic)
+ * - Built-in retry, timeout, error handling
+ * - No manual response parsing
  */
 
+import { generateText, Output } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { z } from 'zod';
+
 // ============================================================================
-// Types
+// Zod Schema (single source of truth for types + JSON Schema)
 // ============================================================================
 
-export type ConversationAction =
-  | 'show_products'
-  | 'ask_clarification'
-  | 'answer_question'
-  | 'greet'
-  | 'thank'
-  | 'empathize'
-  | 'handoff'
-  | 'farewell';
+const ConversationActionSchema = z.enum([
+  'show_products',
+  'ask_clarification',
+  'answer_question',
+  'greet',
+  'thank',
+  'empathize',
+  'handoff',
+  'farewell',
+]);
 
-export type BusinessActionType =
+const BusinessActionTypeSchema = z.enum([
   // Tier 0 - Always safe
-  | 'flag_for_human'
-  | 'log_interest'
-  | 'update_lead_status'
-  | 'create_support_ticket'
-  | 'resend_tracking'
+  'flag_for_human',
+  'log_interest',
+  'update_lead_status',
+  'create_support_ticket',
+  'resend_tracking',
   // Tier 1 - Policy-gated
-  | 'issue_small_refund'
-  | 'apply_discount_code'
-  | 'cancel_order';
+  'issue_small_refund',
+  'apply_discount_code',
+  'cancel_order',
+]);
 
-export interface BusinessAction {
-  type: BusinessActionType;
-  order_id?: string;
-  amount?: number;
-  reason?: string;
-  status?: string;
-  interest?: string;
-  discount_code?: string;
-}
+const BusinessActionSchema = z.object({
+  type: BusinessActionTypeSchema,
+  order_id: z.string().nullable(),
+  amount: z.number().nullable(),
+  reason: z.string().nullable(),
+  status: z.string().nullable(),
+  interest: z.string().nullable(),
+  discount_code: z.string().nullable(),
+});
 
-export interface LLMDecision {
-  conversation_action: ConversationAction;
-  business_actions: BusinessAction[];
-  message: string;
-  product_ids?: string[];
-  send_images?: boolean;
-  reasoning?: string;
-}
-
-// ============================================================================
-// JSON Schema for Structured Output
-// ============================================================================
-
-/**
- * JSON Schema for LLM decision output.
- * All fields must be required for OpenAI structured outputs.
- * No `anyOf` at root level.
- */
-const LLM_DECISION_SCHEMA = {
-  type: 'object',
-  properties: {
-    conversation_action: {
-      type: 'string',
-      enum: [
-        'show_products',
-        'ask_clarification',
-        'answer_question',
-        'greet',
-        'thank',
-        'empathize',
-        'handoff',
-        'farewell'
-      ],
-      description: 'The type of conversational move to make'
-    },
-    business_actions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          type: {
-            type: 'string',
-            enum: [
-              'flag_for_human',
-              'log_interest',
-              'update_lead_status',
-              'create_support_ticket',
-              'resend_tracking',
-              'issue_small_refund',
-              'apply_discount_code',
-              'cancel_order'
-            ]
-          },
-          // All optional fields use ["string", "null"] or ["number", "null"] pattern
-          // per OpenAI Structured Outputs requirement: all properties must be in required[]
-          order_id: { type: ['string', 'null'] },
-          amount: { type: ['number', 'null'] },
-          reason: { type: ['string', 'null'] },
-          status: { type: ['string', 'null'] },
-          interest: { type: ['string', 'null'] },
-          discount_code: { type: ['string', 'null'] }
-        },
-        required: ['type', 'order_id', 'amount', 'reason', 'status', 'interest', 'discount_code'],
-        additionalProperties: false
-      },
-      description: 'Business actions to execute'
-    },
-    message: {
-      type: 'string',
-      description: 'The message to send to the customer'
-    },
-    // Optional fields use nullable types and must still be in required[]
-    product_ids: {
-      type: ['array', 'null'],
-      items: { type: 'string' },
-      description: 'Product IDs to show (if conversation_action is show_products). Null if not applicable.'
-    },
-    send_images: {
-      type: ['boolean', 'null'],
-      description: 'Whether to send product images along with the message. Null if not applicable.'
-    },
-    reasoning: {
-      type: ['string', 'null'],
-      description: 'Short 1-2 sentence reasoning for logging, or null if not needed.'
-    }
-  },
-  required: ['conversation_action', 'business_actions', 'message', 'product_ids', 'send_images', 'reasoning'],
-  additionalProperties: false
-};
+const LLMDecisionSchema = z.object({
+  conversation_action: ConversationActionSchema,
+  business_actions: z.array(BusinessActionSchema),
+  message: z.string(),
+  product_ids: z.array(z.string()).nullable(),
+  send_images: z.boolean().nullable(),
+  reasoning: z.string().nullable(),
+});
 
 // ============================================================================
-// LLM Response Interface
+// Exported Types (inferred from Zod — single source of truth)
 // ============================================================================
 
-interface ResponsesAPIResponse {
-  id: string;
-  status: 'completed' | 'incomplete' | 'failed';
-  incomplete_details?: {
-    reason: string;
-  };
-  output: Array<{
-    type: 'reasoning' | 'message';
-    status?: string;
-    content?: Array<{
-      type: string;
-      text?: string;
-    }>;
-  }>;
-  output_text?: string;
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-    output_tokens_details?: {
-      reasoning_tokens: number;
-    };
-  };
-}
+export type ConversationAction = z.infer<typeof ConversationActionSchema>;
+export type BusinessActionType = z.infer<typeof BusinessActionTypeSchema>;
+export type BusinessAction = z.infer<typeof BusinessActionSchema>;
+export type LLMDecision = z.infer<typeof LLMDecisionSchema>;
 
 // ============================================================================
 // Main LLM Function
@@ -173,168 +81,66 @@ interface ResponsesAPIResponse {
  * @param systemPrompt - Instructions and guardrails for the LLM
  * @param environmentJson - JSON string of environment snapshot
  * @param apiKey - OpenAI API key
- * @param timeoutMs - Timeout in milliseconds (default 20s)
+ * @param timeoutMs - Timeout in milliseconds (default 60s)
  * @returns LLMDecision or null if failed
  */
 export async function callLLMForDecision(
   systemPrompt: string,
   environmentJson: string,
   apiKey: string,
-  timeoutMs: number = 60_000 // GPT-5-mini uses reasoning, needs more time
+  timeoutMs: number = 60_000,
+  gatewayBaseURL?: string
 ): Promise<LLMDecision | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const startTime = Date.now();
 
   try {
-    console.log('🤖 Calling LLM for decision (gpt-5-mini with structured output)...');
+    console.log('Calling LLM for decision (gpt-5-mini via AI SDK)...');
 
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: 'gpt-5-mini',
-        instructions: systemPrompt,
-        // Clearly label the environment data for the model
-        input: `ENVIRONMENT_SNAPSHOT:\n${environmentJson}`,
-        text: {
-          format: {
-            type: 'json_schema',
-            name: 'llm_decision',
-            schema: LLM_DECISION_SCHEMA,
-            strict: true
-          }
-        },
-        // GPT-5-mini uses reasoning tokens which ARE included in max_output_tokens
-        // Measured: ~256 reasoning + ~500 JSON = ~750 tokens needed
-        // Using 1024 for headroom on complex queries
-        max_output_tokens: 1024,
-        // Use minimal reasoning to reduce token usage and latency for simple tasks
-        reasoning: {
-          effort: 'low'
-        }
-      })
+    const openai = createOpenAI({
+      apiKey,
+      ...(gatewayBaseURL ? { baseURL: gatewayBaseURL } : {}),
     });
 
-    if (!res.ok) {
-      const errorText = await res.text();
+    const { output, usage } = await generateText({
+      model: openai.responses('gpt-5-mini'),
+      system: systemPrompt,
+      prompt: `ENVIRONMENT_SNAPSHOT:\n${environmentJson}`,
+      output: Output.object({ schema: LLMDecisionSchema }),
+      maxOutputTokens: 1024,
+      providerOptions: {
+        openai: {
+          reasoningEffort: 'low',
+        },
+      },
+      abortSignal: AbortSignal.timeout(timeoutMs),
+    });
 
-      // Specific error handling for common cases
-      if (res.status === 429) {
-        console.error('🚫 LLM rate limited (429) - falling back to deterministic response');
-        // Don't retry in hot path - let fallback ladder handle it
-        return null;
-      }
-
-      if (res.status === 401) {
-        console.error('🔑 LLM auth failed (401) - check OPENAI_API_KEY');
-        return null;
-      }
-
-      if (res.status === 400) {
-        console.error('❌ LLM bad request (400) - schema or input issue:', errorText.substring(0, 200));
-        return null;
-      }
-
-      if (res.status >= 500) {
-        console.error('🔥 LLM server error (5xx) - OpenAI issue:', res.status);
-        return null;
-      }
-
-      console.error('❌ LLM API error:', res.status, errorText);
-      return null;
-    }
-
-    const json = await res.json() as ResponsesAPIResponse;
     const duration = Date.now() - startTime;
+    console.log(`LLM call completed in ${duration}ms (tokens: ${usage?.totalTokens ?? 'unknown'})`);
 
-    // Log usage for monitoring
-    const reasoningTokens = json.usage?.output_tokens_details?.reasoning_tokens || 0;
-    const outputTokens = json.usage?.output_tokens || 0;
-    console.log(`⏱️ LLM call completed in ${duration}ms (reasoning: ${reasoningTokens} tokens, output: ${outputTokens} tokens)`);
-
-    // Check for incomplete response
-    if (json.status === 'incomplete') {
-      console.error(`❌ LLM response incomplete: ${json.incomplete_details?.reason}`);
+    if (!output) {
+      console.warn('LLM returned no structured output');
       return null;
     }
 
-    if (json.status === 'failed') {
-      console.error('❌ LLM response failed');
-      return null;
-    }
-
-    // Parse the structured output
-    const decision = parseDecision(json);
-
-    if (decision) {
-      console.log('✅ LLM decision:', decision.conversation_action, '-', decision.message.substring(0, 50) + '...');
-      return decision;
-    }
-
-    console.warn('⚠️ Failed to parse LLM decision');
-    return null;
+    console.log('LLM decision:', output.conversation_action, '-', output.message.substring(0, 50) + '...');
+    return output;
 
   } catch (err) {
     const duration = Date.now() - startTime;
-    if (err instanceof Error && err.name === 'AbortError') {
-      console.error(`⏱️ LLM call timed out after ${duration}ms`);
+
+    if (err instanceof Error) {
+      if (err.name === 'AbortError' || err.name === 'TimeoutError') {
+        console.error(`LLM call timed out after ${duration}ms`);
+        return null;
+      }
+
+      // AI SDK wraps API errors with useful context
+      console.error(`LLM call failed after ${duration}ms:`, err.message);
     } else {
-      console.error(`❌ LLM call failed after ${duration}ms:`, err);
-    }
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// ============================================================================
-// Response Parsing
-// ============================================================================
-
-/**
- * Parse the Responses API response to extract the decision.
- */
-function parseDecision(response: ResponsesAPIResponse): LLMDecision | null {
-  try {
-    // Responses API returns output_text for structured output
-    let text: string | undefined;
-
-    if (response.output_text) {
-      text = response.output_text;
-    } else {
-      // Fallback: find text in output array
-      const messageItem = response.output?.find(item => item.type === 'message');
-      const textContent = messageItem?.content?.find(c => c.type === 'output_text' || c.type === 'text');
-      text = textContent?.text;
+      console.error(`LLM call failed after ${duration}ms:`, err);
     }
 
-    if (!text) {
-      console.error('No text found in LLM response');
-      return null;
-    }
-
-    const parsed = JSON.parse(text) as LLMDecision;
-
-    // Validate required fields
-    if (!parsed.conversation_action || !parsed.message) {
-      console.error('Missing required fields in LLM decision');
-      return null;
-    }
-
-    // Ensure business_actions is an array
-    if (!Array.isArray(parsed.business_actions)) {
-      parsed.business_actions = [];
-    }
-
-    return parsed;
-
-  } catch (err) {
-    console.error('Failed to parse LLM decision JSON:', err);
     return null;
   }
 }
@@ -347,32 +153,10 @@ function parseDecision(response: ResponsesAPIResponse): LLMDecision | null {
  * Check if a decision is valid and safe to execute.
  */
 export function isValidDecision(decision: LLMDecision): boolean {
-  const validActions: ConversationAction[] = [
-    'show_products',
-    'ask_clarification',
-    'answer_question',
-    'greet',
-    'thank',
-    'empathize',
-    'handoff',
-    'farewell'
-  ];
-
-  if (!validActions.includes(decision.conversation_action)) {
-    return false;
-  }
-
+  // Zod already validated the schema, so we only check business logic
   if (!decision.message || decision.message.trim().length === 0) {
     return false;
   }
-
-  // Validate product_ids if showing products
-  if (decision.conversation_action === 'show_products') {
-    if (!decision.product_ids || decision.product_ids.length === 0) {
-      // Can still be valid - maybe just a general product message
-    }
-  }
-
   return true;
 }
 
@@ -383,7 +167,7 @@ export function getTier2Actions(decision: LLMDecision): BusinessAction[] {
   const tier2Types: BusinessActionType[] = [
     'issue_small_refund',
     'apply_discount_code',
-    'cancel_order'
+    'cancel_order',
   ];
 
   return decision.business_actions.filter(action =>

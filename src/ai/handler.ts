@@ -52,6 +52,7 @@ export interface HandlerContext {
   lead: Lead;
   messageText: string;
   openaiApiKey: string;
+  aiGatewayBaseURL?: string;
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
   conversationSummary: ConversationSummary | null;
   // Phase 1: Semantic search bindings (optional for backwards compatibility)
@@ -507,7 +508,8 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     systemPrompt,
     userInput,
     ctx.openaiApiKey,
-    20_000 // 20s timeout
+    20_000, // 20s timeout
+    ctx.aiGatewayBaseURL
   );
 
   // Step 5: Handle LLM response (or fallback)
@@ -613,7 +615,7 @@ async function processLLMDecision(
     flaggedForHuman: executionResult.forceHandoff || action === 'handoff',
     intentType: finalDecision.conversation_action,
     searchQuery: searchQuery || undefined,
-    productsShown: finalDecision.product_ids,
+    productsShown: finalDecision.product_ids ?? undefined,
     imagesToSend,
     businessActions: finalDecision.business_actions as Array<{ type: string; [key: string]: unknown }>,
   };

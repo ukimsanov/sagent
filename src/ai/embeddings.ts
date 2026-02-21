@@ -2,12 +2,13 @@
  * Embeddings Utility - Workers AI + Cloudflare Vectorize
  *
  * Handles semantic product search using:
- * - Workers AI bge-base-en-v1.5 for embedding generation (768 dimensions)
+ * - Workers AI EmbeddingGemma-300m for embedding generation (768 dimensions)
  * - Cloudflare Vectorize for vector storage and similarity search
  *
- * Uses CLS pooling for better accuracy (recommended by Cloudflare 2025)
+ * EmbeddingGemma-300m: Google model built from Gemma 3, supports 100+ languages,
+ * better quality than bge-base-en-v1.5 for multilingual and semantic tasks.
  *
- * @see https://developers.cloudflare.com/workers-ai/models/bge-base-en-v1.5/
+ * @see https://developers.cloudflare.com/workers-ai/models/embeddinggemma-300m/
  * @see https://developers.cloudflare.com/vectorize/get-started/embeddings/
  */
 
@@ -51,8 +52,8 @@ interface WorkersAIEmbeddingResponse {
 // Constants
 // ============================================================================
 
-const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
-// Note: bge-base-en-v1.5 outputs 768-dimensional vectors
+const EMBEDDING_MODEL = '@cf/google/embeddinggemma-300m';
+// Note: EmbeddingGemma-300m outputs 768-dimensional vectors (same as bge-base-en-v1.5)
 
 // ============================================================================
 // Embedding Generation
@@ -60,7 +61,6 @@ const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5';
 
 /**
  * Generate embedding for a single text using Workers AI
- * Uses CLS pooling for better accuracy
  */
 export async function generateEmbedding(
   ai: Ai,
@@ -69,7 +69,6 @@ export async function generateEmbedding(
   try {
     const response = await ai.run(EMBEDDING_MODEL, {
       text: [text],
-      pooling: 'cls', // Better accuracy for larger inputs (Cloudflare 2025 recommendation)
     }) as WorkersAIEmbeddingResponse;
 
     if (!response.data || response.data.length === 0) {
@@ -101,7 +100,6 @@ export async function generateEmbeddings(
   try {
     const response = await ai.run(EMBEDDING_MODEL, {
       text: texts,
-      pooling: 'cls',
     }) as WorkersAIEmbeddingResponse;
 
     if (!response.data || response.data.length !== texts.length) {

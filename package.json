@@ -15,5 +15,10 @@
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
 		"wrangler": "^4.51.0"
+	},
+	"dependencies": {
+		"@ai-sdk/openai": "^3.0.30",
+		"ai": "^6.0.94",
+		"zod": "^4.3.6"
 	}
 }

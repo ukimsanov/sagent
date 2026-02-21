@@ -3,7 +3,7 @@
 	"name": "whatsapp-ai-agent",
 	"account_id": "568051052fcb248c756d306dece6cfb7",
 	"main": "src/index.ts",
-	"compatibility_date": "2025-11-27",
+	"compatibility_date": "2025-12-01",
 	"observability": {
 		"enabled": true
 	},

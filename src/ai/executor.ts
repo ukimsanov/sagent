@@ -158,7 +158,12 @@ export async function executeDecision(
         ...executedActions,
         {
           type: 'flag_for_human',
+          order_id: null,
+          amount: null,
           reason: handoffReason || 'Policy check failed',
+          status: null,
+          interest: null,
+          discount_code: null,
         },
       ],
     };
