@@ -53,6 +53,12 @@ const BusinessActionSchema = z.object({
   discount_code: z.string().nullable(),
 });
 
+const ReplyOptionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+});
+
 const LLMDecisionSchema = z.object({
   conversation_action: ConversationActionSchema,
   business_actions: z.array(BusinessActionSchema),
@@ -60,6 +66,9 @@ const LLMDecisionSchema = z.object({
   product_ids: z.array(z.string()).nullable(),
   send_images: z.boolean().nullable(),
   reasoning: z.string().nullable(),
+  // Interactive message control
+  reply_type: z.enum(['text', 'buttons', 'list']).nullable(),
+  reply_options: z.array(ReplyOptionSchema).nullable(),
 });
 
 // ============================================================================
@@ -69,6 +78,7 @@ const LLMDecisionSchema = z.object({
 export type ConversationAction = z.infer<typeof ConversationActionSchema>;
 export type BusinessActionType = z.infer<typeof BusinessActionTypeSchema>;
 export type BusinessAction = z.infer<typeof BusinessActionSchema>;
+export type ReplyOption = z.infer<typeof ReplyOptionSchema>;
 export type LLMDecision = z.infer<typeof LLMDecisionSchema>;
 
 // ============================================================================
@@ -82,6 +92,8 @@ export type LLMDecision = z.infer<typeof LLMDecisionSchema>;
  * @param environmentJson - JSON string of environment snapshot
  * @param apiKey - OpenAI API key
  * @param timeoutMs - Timeout in milliseconds (default 60s)
+ * @param gatewayBaseURL - Optional AI gateway base URL
+ * @param businessId - Optional business ID for prompt cache routing
  * @returns LLMDecision or null if failed
  */
 export async function callLLMForDecision(
@@ -89,7 +101,8 @@ export async function callLLMForDecision(
   environmentJson: string,
   apiKey: string,
   timeoutMs: number = 60_000,
-  gatewayBaseURL?: string
+  gatewayBaseURL?: string,
+  businessId?: string
 ): Promise<LLMDecision | null> {
   const startTime = Date.now();
 
@@ -101,7 +114,7 @@ export async function callLLMForDecision(
       ...(gatewayBaseURL ? { baseURL: gatewayBaseURL } : {}),
     });
 
-    const { output, usage } = await generateText({
+    const { output, usage, providerMetadata } = await generateText({
       model: openai.responses('gpt-5-mini'),
       system: systemPrompt,
       prompt: `ENVIRONMENT_SNAPSHOT:\n${environmentJson}`,
@@ -110,13 +123,18 @@ export async function callLLMForDecision(
       providerOptions: {
         openai: {
           reasoningEffort: 'low',
+          // Improve prompt cache routing for multi-tenant
+          ...(businessId ? { promptCacheKey: `biz-${businessId}` } : {}),
         },
       },
       abortSignal: AbortSignal.timeout(timeoutMs),
     });
 
     const duration = Date.now() - startTime;
-    console.log(`LLM call completed in ${duration}ms (tokens: ${usage?.totalTokens ?? 'unknown'})`);
+    const cachedTokens = (providerMetadata as Record<string, any>)?.openai?.cachedPromptTokens ?? 0;
+    const totalPromptTokens = usage?.promptTokens ?? 0;
+    const cacheHitPct = totalPromptTokens > 0 ? Math.round((cachedTokens / totalPromptTokens) * 100) : 0;
+    console.log(`LLM call completed in ${duration}ms (tokens: ${usage?.totalTokens ?? '?'}, cached: ${cachedTokens}/${totalPromptTokens} ${cacheHitPct}%)`);
 
     if (!output) {
       console.warn('LLM returned no structured output');

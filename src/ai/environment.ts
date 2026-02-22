@@ -181,9 +181,10 @@ function buildProductContext(product: ProductWithMetadata): ProductContext {
     }
   }
 
-  // Format price
+  // Format price with currency symbol (not code)
+  const currencySymbol = getCurrencySymbol(product.currency);
   const priceStr = product.price !== null
-    ? `${product.currency || '$'}${product.price.toFixed(2)}`
+    ? `${currencySymbol}${product.price.toFixed(2)}`
     : 'Price on request';
 
   return {
@@ -197,6 +198,22 @@ function buildProductContext(product: ProductWithMetadata): ProductContext {
     has_image: product.image_urls.length > 0,
     in_stock: product.in_stock === 1,
   };
+}
+
+/**
+ * Map currency code to symbol for natural display
+ */
+function getCurrencySymbol(currency: string | null): string {
+  switch (currency) {
+    case 'USD': case 'CAD': case 'AUD': return '$';
+    case 'EUR': return '€';
+    case 'GBP': return '£';
+    case 'JPY': case 'CNY': return '¥';
+    case 'KRW': return '₩';
+    case 'INR': return '₹';
+    case 'CHF': return 'CHF ';
+    default: return currency ? `${currency} ` : '$';
+  }
 }
 
 /**
@@ -298,6 +315,11 @@ export function isProductQuery(message: string): boolean {
   const productIndicators = [
     'show', 'see', 'want', 'need', 'looking', 'have', 'price',
     'cost', 'buy', 'purchase', 'order', 'get', 'find',
+    // Follow-up indicators — customer is referencing a product from earlier
+    'how much', 'what size', 'size', 'color', 'colour', 'stock',
+    'available', 'cheaper', 'expensive', 'similar', 'alternative',
+    'that one', 'this one', 'the one', 'black one', 'grey one', 'white one',
+    'large', 'medium', 'small', 'xl',
   ];
 
   const lower = message.toLowerCase();
@@ -319,10 +341,21 @@ export function needsProductSearch(message: string): boolean {
     return false;
   }
 
+  // Skip for short conversational replies
+  const conversational = /^(ok|okay|sure|cool|got it|sounds good|great|perfect|yes|no|yep|nope|alright|nice|awesome|wow|lol|haha|hmm|idk|nah)[\s!.]*$/i;
+  if (conversational.test(trimmed)) {
+    return false;
+  }
+
   // Skip for pure questions about non-product things
   const nonProductQuestions = /^(how are you|what's up|what is your name|who are you|are you real|are you a bot|how do I contact|what are your hours|when are you open)/i;
   if (nonProductQuestions.test(trimmed)) {
     return false;
+  }
+
+  // Skip for interactive reply selections (already enriched with context)
+  if (trimmed.startsWith('[selected')) {
+    return true; // Product selections should search
   }
 
   // For short messages (1-3 words), assume they might be product names/categories
@@ -337,7 +370,7 @@ export function needsProductSearch(message: string): boolean {
     return true;
   }
 
-  // Default: search anyway - semantic search will handle relevance
-  // This catches "let's go for some hoodies" etc.
-  return true;
+  // Default: don't search for longer messages without product indicators
+  // e.g., "how are you doing today" or "can you help me with something"
+  return false;
 }

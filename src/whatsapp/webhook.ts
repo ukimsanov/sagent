@@ -31,6 +31,12 @@ export interface ParsedWebhookMessage {
   type: IncomingMessage['type'];
   text: string | null;
   raw: IncomingMessage;
+  interactiveReply?: {
+    type: 'button_reply' | 'list_reply';
+    id: string;
+    title: string;
+    description?: string;
+  };
 }
 
 // ============================================================================
@@ -110,19 +116,31 @@ export function extractMessage(payload: WebhookPayload): ParsedWebhookMessage | 
 
     // Extract text content based on message type
     let text: string | null = null;
+    let interactiveReply: ParsedWebhookMessage['interactiveReply'] | undefined;
 
     switch (message.type) {
       case 'text':
         text = (message as TextMessage).text.body;
         break;
       case 'interactive':
-        // Handle button/list replies
+        // Handle button/list replies — capture full ID + title
         if ('interactive' in message) {
           const interactive = message.interactive;
           if (interactive.button_reply) {
             text = interactive.button_reply.title;
+            interactiveReply = {
+              type: 'button_reply',
+              id: interactive.button_reply.id,
+              title: interactive.button_reply.title,
+            };
           } else if (interactive.list_reply) {
             text = interactive.list_reply.title;
+            interactiveReply = {
+              type: 'list_reply',
+              id: interactive.list_reply.id,
+              title: interactive.list_reply.title,
+              description: interactive.list_reply.description,
+            };
           }
         }
         break;
@@ -139,7 +157,8 @@ export function extractMessage(payload: WebhookPayload): ParsedWebhookMessage | 
       timestamp: parseInt(message.timestamp, 10),
       type: message.type,
       text,
-      raw: message
+      raw: message,
+      interactiveReply,
     };
   } catch (error) {
     console.error('Error extracting message:', error);

@@ -7,7 +7,7 @@
  * Uses existing retry.ts infrastructure with custom shouldRetry logic.
  */
 
-import { sendTextMessage, sendImageMessage, WhatsAppApiError } from './messages';
+import { sendTextMessage, sendImageMessage, sendButtonMessage, sendListMessage, WhatsAppApiError } from './messages';
 import { tryWithRetry, WHATSAPP_RETRY_OPTIONS } from '../utils/retry';
 import { logToDeadLetter } from '../db/dead-letter';
 
@@ -130,6 +130,112 @@ export async function sendImageMessageReliable(
       incomingMessageId: ctx.incomingMessageId || null,
       imageUrl: imageUrl.substring(0, 200),
       caption: caption?.substring(0, 100),
+      attempts: result.attempts,
+      errorStatus: errorDetails.statusCode,
+      errorBody: errorDetails.responseBody,
+    });
+  } catch (dlqError) {
+    console.error('Failed to log to dead letter queue:', dlqError);
+  }
+
+  return {
+    success: false,
+    attempts: result.attempts,
+    error: errorDetails.message,
+  };
+}
+
+/**
+ * Send a button message with automatic retry and dead letter queue logging.
+ */
+export async function sendButtonMessageReliable(
+  ctx: SendContext,
+  bodyText: string,
+  buttons: Array<{ id: string; title: string }>
+): Promise<ReliableSendResult> {
+  const result = await tryWithRetry(
+    () => sendButtonMessage(ctx.phoneNumberId, ctx.accessToken, ctx.to, bodyText, buttons),
+    {
+      ...WHATSAPP_RETRY_OPTIONS,
+      shouldRetry: (error) => shouldRetryWhatsAppError(error),
+    }
+  );
+
+  if (result.success) {
+    return {
+      success: true,
+      attempts: result.attempts,
+      messageId: result.data?.messages?.[0]?.id,
+    };
+  }
+
+  const errorDetails = extractErrorDetails(result.error);
+  console.error(`🔘 Button message failed after ${result.attempts} attempts: ${errorDetails.message}`);
+
+  try {
+    await logToDeadLetter(ctx.db, 'message_send', ctx.leadId, errorDetails.message, {
+      type: 'buttons',
+      channel: 'whatsapp',
+      businessId: ctx.businessId,
+      to: ctx.to,
+      incomingMessageId: ctx.incomingMessageId || null,
+      bodyText: bodyText.substring(0, 500),
+      buttonCount: buttons.length,
+      attempts: result.attempts,
+      errorStatus: errorDetails.statusCode,
+      errorBody: errorDetails.responseBody,
+    });
+  } catch (dlqError) {
+    console.error('Failed to log to dead letter queue:', dlqError);
+  }
+
+  return {
+    success: false,
+    attempts: result.attempts,
+    error: errorDetails.message,
+  };
+}
+
+/**
+ * Send a list message with automatic retry and dead letter queue logging.
+ */
+export async function sendListMessageReliable(
+  ctx: SendContext,
+  bodyText: string,
+  buttonText: string,
+  sections: Array<{
+    title: string;
+    rows: Array<{ id: string; title: string; description?: string }>;
+  }>
+): Promise<ReliableSendResult> {
+  const result = await tryWithRetry(
+    () => sendListMessage(ctx.phoneNumberId, ctx.accessToken, ctx.to, bodyText, buttonText, sections),
+    {
+      ...WHATSAPP_RETRY_OPTIONS,
+      shouldRetry: (error) => shouldRetryWhatsAppError(error),
+    }
+  );
+
+  if (result.success) {
+    return {
+      success: true,
+      attempts: result.attempts,
+      messageId: result.data?.messages?.[0]?.id,
+    };
+  }
+
+  const errorDetails = extractErrorDetails(result.error);
+  console.error(`📋 List message failed after ${result.attempts} attempts: ${errorDetails.message}`);
+
+  try {
+    await logToDeadLetter(ctx.db, 'message_send', ctx.leadId, errorDetails.message, {
+      type: 'list',
+      channel: 'whatsapp',
+      businessId: ctx.businessId,
+      to: ctx.to,
+      incomingMessageId: ctx.incomingMessageId || null,
+      bodyText: bodyText.substring(0, 500),
+      sectionCount: sections.length,
       attempts: result.attempts,
       errorStatus: errorDetails.statusCode,
       errorBody: errorDetails.responseBody,

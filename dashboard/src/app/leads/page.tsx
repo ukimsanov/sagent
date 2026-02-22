@@ -55,9 +55,9 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
   const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
 
-  // Calculate stats from actual leads
+  // Stats: use DB total for "Total" card, page data for status breakdown
   const stats = {
-    total: leads.length,
+    total,
     hot: leads.filter((l) => l.status === "hot").length,
     warm: leads.filter((l) => l.status === "warm").length,
     converted: leads.filter((l) => l.status === "converted").length,

@@ -282,6 +282,38 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
     const afterHoursLength = (data.after_hours_message as string)?.length || 0;
     const afterHoursCharsLeft = AFTER_HOURS_MAX_LENGTH - afterHoursLength;
 
+    const DAYS = [
+      { key: "mon", label: "Monday" },
+      { key: "tue", label: "Tuesday" },
+      { key: "wed", label: "Wednesday" },
+      { key: "thu", label: "Thursday" },
+      { key: "fri", label: "Friday" },
+      { key: "sat", label: "Saturday" },
+      { key: "sun", label: "Sunday" },
+    ] as const;
+
+    // Parse working_hours JSON into a map
+    let hoursMap: Record<string, string> = {};
+    try {
+      const raw = data.working_hours as string;
+      if (raw) hoursMap = JSON.parse(raw);
+    } catch {
+      hoursMap = {};
+    }
+
+    const updateDay = (dayKey: string, enabled: boolean, open?: string, close?: string) => {
+      const updated = { ...hoursMap };
+      if (!enabled) {
+        delete updated[dayKey];
+      } else {
+        const current = updated[dayKey] || "9:00-18:00";
+        const [currentOpen, currentClose] = current.split("-");
+        updated[dayKey] = `${open ?? currentOpen}-${close ?? currentClose}`;
+      }
+      handleChange("working_hours", JSON.stringify(updated));
+      hoursMap = updated;
+    };
+
     return (
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Timezone */}
@@ -311,19 +343,49 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
           </Select>
         </div>
 
-        {/* Working Hours */}
-        <div className="*:not-first:mt-2">
-          <Label htmlFor="working_hours">Working Hours (JSON)</Label>
-          <Textarea
-            id="working_hours"
-            placeholder='{"mon":"9:00-18:00","tue":"9:00-18:00","wed":"9:00-18:00","thu":"9:00-18:00","fri":"9:00-17:00"}'
-            value={data.working_hours as string}
-            onChange={(e) => handleChange("working_hours", e.target.value)}
-            rows={3}
-            className="font-mono text-sm"
-          />
+        {/* Working Hours — visual day grid */}
+        <div className="space-y-2">
+          <Label>Working Hours</Label>
+          <div className="space-y-2 rounded-lg border p-3">
+            {DAYS.map(({ key, label }) => {
+              const isOpen = key in hoursMap;
+              const [openTime, closeTime] = isOpen
+                ? (hoursMap[key] || "9:00-18:00").split("-")
+                : ["9:00", "18:00"];
+
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <Switch
+                    checked={isOpen}
+                    onCheckedChange={(checked) => updateDay(key, checked)}
+                    className="data-[state=checked]:[&_span]:rtl:-translate-x-2 h-4 w-6 [&_span]:size-3 data-[state=checked]:[&_span]:translate-x-2"
+                  />
+                  <span className="text-sm w-24 shrink-0">{label}</span>
+                  {isOpen ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="time"
+                        value={openTime}
+                        onChange={(e) => updateDay(key, true, e.target.value, closeTime)}
+                        className="h-8 w-28 text-sm"
+                      />
+                      <span className="text-xs text-muted-foreground">to</span>
+                      <Input
+                        type="time"
+                        value={closeTime}
+                        onChange={(e) => updateDay(key, true, openTime, e.target.value)}
+                        className="h-8 w-28 text-sm"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Closed</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
           <p className="text-xs text-muted-foreground">
-            JSON format: {`{"mon":"9:00-18:00", ...}`}. Missing days = closed.
+            Toggle days on/off and set open/close times
           </p>
         </div>
 

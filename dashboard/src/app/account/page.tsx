@@ -75,7 +75,7 @@ export default async function AccountPage() {
                 <div>
                   <CardTitle>Profile</CardTitle>
                   <CardDescription>
-                    Your account information from WorkOS
+                    Your profile and account details
                   </CardDescription>
                 </div>
               </div>

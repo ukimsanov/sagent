@@ -27,8 +27,11 @@ import {
 import {
   sendTextMessageReliable,
   sendImageMessageReliable,
+  sendButtonMessageReliable,
+  sendListMessageReliable,
   type SendContext
 } from './whatsapp/messages-reliable';
+import { buildSendPlan } from './whatsapp/interactive-builder';
 import { handleIncomingMessage as handleMessage } from './ai/handler';
 import { buildIncrementalSummaryPrompt } from './ai/prompts';
 import { generateText, Output } from 'ai';
@@ -72,6 +75,7 @@ interface Env {
   DB: D1Database;
   CONVERSATIONS: KVNamespace; // Used for dedup keys, rate limiting, transcription cache
   CONVERSATION_DO: DurableObjectNamespace; // C4 FIX: Atomic conversation state
+  PRODUCT_IMAGES: R2Bucket; // R2 bucket for product images
 
   // Semantic search bindings (Phase 1: AI Sales Agent Redesign)
   PRODUCT_VECTORS: VectorizeIndex; // Vectorize for semantic product search
@@ -133,6 +137,13 @@ export default {
     // =========================================================================
     if (url.pathname.startsWith('/admin/embed')) {
       return handleAdminEmbed(request, url, env);
+    }
+
+    // =========================================================================
+    // Public: Product image serving from R2
+    // =========================================================================
+    if (url.pathname.startsWith('/images/') && request.method === 'GET') {
+      return handleImageServe(url, env);
     }
 
     // WhatsApp webhook endpoint
@@ -233,6 +244,64 @@ export default {
     }
   }
 } satisfies ExportedHandler<Env>;
+
+// ============================================================================
+// Image Serving (GET /images/*) - Public endpoint for WhatsApp to fetch
+// ============================================================================
+
+async function handleImageServe(url: URL, env: Env): Promise<Response> {
+  const imagePath = url.pathname.replace('/images/', '');
+
+  if (!imagePath) {
+    return new Response('Not Found', { status: 404 });
+  }
+
+  try {
+    const object = await env.PRODUCT_IMAGES.get(imagePath);
+
+    if (!object) {
+      return new Response('Not Found', { status: 404 });
+    }
+
+    const contentType = object.httpMetadata?.contentType || 'image/jpeg';
+
+    return new Response(object.body, {
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
+  } catch (error) {
+    console.error('Image serve error:', error);
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
+
+/**
+ * Resolve an image URL to an absolute URL that WhatsApp can fetch.
+ * - Dashboard-relative URLs (/api/images/...) → worker /images/ route
+ * - Already absolute URLs → pass through unchanged
+ */
+function resolveImageUrl(url: string, workerBaseUrl: string): string {
+  // Already absolute
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+
+  // Dashboard-relative URL: /api/images/businessId/filename.ext → /images/businessId/filename.ext
+  if (url.startsWith('/api/images/')) {
+    const r2Path = url.replace('/api/images/', '');
+    return `${workerBaseUrl}/images/${r2Path}`;
+  }
+
+  // Other relative paths — assume they're R2 keys
+  if (url.startsWith('/')) {
+    return `${workerBaseUrl}${url}`;
+  }
+
+  // Bare R2 key
+  return `${workerBaseUrl}/images/${url}`;
+}
 
 // ============================================================================
 // Cleanup Endpoint (POST /cleanup) - For Testing
@@ -710,6 +779,17 @@ async function handleIncomingMessage(body: unknown, env: Env, ctx: ExecutionCont
         messageText = messageText.substring(0, MAX_MESSAGE_LENGTH);
       }
 
+      // Enrich interactive replies with selection context for the LLM
+      if (message.interactiveReply) {
+        const reply = message.interactiveReply;
+        if (reply.type === 'list_reply' && reply.id.startsWith('product:')) {
+          messageText = `[Selected product: ${reply.title} (ID: ${reply.id.replace('product:', '')})]`;
+        } else {
+          messageText = `[Selected option: ${reply.title} (ID: ${reply.id})]`;
+        }
+        console.log(`🔘 Interactive reply enriched: ${messageText}`);
+      }
+
       // Text message - process directly
       const textMessage = {
         businessPhoneNumberId: message.businessPhoneNumberId,
@@ -956,9 +1036,6 @@ async function processMessage(
     );
   }
 
-  // Add a small delay to seem more human
-  await simulateTypingDelay(response.message.length);
-
   // H3 FIX: Build send context for reliable message sending
   const sendCtx: SendContext = {
     db: env.DB,
@@ -970,33 +1047,107 @@ async function processMessage(
     incomingMessageId: message.messageId, // DLQ: trace response back to incoming message
   };
 
-  // Split long messages if needed
-  const messageParts = splitMessage(response.message);
+  // Split LLM response into message bubbles (separated by \n\n)
+  // This makes the bot feel like a real person texting in bursts
+  const bubbles = response.message
+    .split(/\n\n+/)
+    .map(b => b.trim())
+    .filter(b => b.length > 0);
 
-  // Send response(s) with retry logic (H3 FIX)
-  for (const part of messageParts) {
-    const result = await sendTextMessageReliable(sendCtx, part);
+  // Build send plan for the LAST bubble (or full message if no splits)
+  // Interactive elements (buttons/list) only attach to the final message
+  const lastBubble = bubbles[bubbles.length - 1] || response.message;
+  const leadingBubbles = bubbles.length > 1 ? bubbles.slice(0, -1) : [];
+
+  const sendPlan = buildSendPlan({
+    message: lastBubble,
+    replyType: response.replyType,
+    replyOptions: response.replyOptions?.map(o => ({
+      id: o.id,
+      title: o.title,
+      description: o.description,
+    })),
+    productsForList: response.productsForList,
+  });
+
+  console.log(`📤 Send plan: ${sendPlan.type} (${bubbles.length} bubble${bubbles.length > 1 ? 's' : ''})`);
+
+  // Send leading bubbles as plain text with realistic typing delays
+  for (const bubble of leadingBubbles) {
+    // Show typing indicator before each bubble
+    await markAsRead(
+      message.businessPhoneNumberId,
+      env.WHATSAPP_ACCESS_TOKEN,
+      message.messageId,
+      true
+    );
+    // Typing delay proportional to message length (0.3-1.5s)
+    const typingDelay = Math.min(300 + bubble.length * 10, 1500);
+    await new Promise(resolve => setTimeout(resolve, typingDelay));
+
+    const result = await sendTextMessageReliable(sendCtx, bubble);
     if (!result.success) {
-      console.error(`Message send failed after ${result.attempts} attempts: ${result.error}`);
-      // Continue trying other parts even if one fails
+      console.error(`Bubble send failed: ${result.error}`);
     }
+  }
 
-    // Small delay between multiple messages
-    if (messageParts.length > 1) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+  // Small gap before the final message (with interactive elements)
+  if (leadingBubbles.length > 0) {
+    await markAsRead(
+      message.businessPhoneNumberId,
+      env.WHATSAPP_ACCESS_TOKEN,
+      message.messageId,
+      true
+    );
+    const gap = Math.min(300 + lastBubble.length * 10, 1500);
+    await new Promise(resolve => setTimeout(resolve, gap));
+  } else {
+    // Single bubble — just a small typing delay
+    await simulateTypingDelay(response.message.length);
+  }
+
+  // Send the final bubble (possibly as buttons/list)
+  switch (sendPlan.type) {
+    case 'buttons': {
+      const result = await sendButtonMessageReliable(sendCtx, sendPlan.bodyText, sendPlan.buttons);
+      if (!result.success) {
+        console.warn('🔘 Button send failed, falling back to text');
+        await sendTextMessageReliable(sendCtx, lastBubble);
+      }
+      break;
+    }
+    case 'list': {
+      const result = await sendListMessageReliable(sendCtx, sendPlan.bodyText, sendPlan.buttonText, sendPlan.sections);
+      if (!result.success) {
+        console.warn('📋 List send failed, falling back to text');
+        await sendTextMessageReliable(sendCtx, lastBubble);
+      }
+      break;
+    }
+    case 'text':
+    default: {
+      const messageParts = splitMessage(lastBubble);
+      for (const part of messageParts) {
+        const result = await sendTextMessageReliable(sendCtx, part);
+        if (!result.success) {
+          console.error(`Message send failed after ${result.attempts} attempts: ${result.error}`);
+        }
+      }
+      break;
     }
   }
 
   // Send product images if requested by LLM decision (H3 FIX: with retry)
   if (response.imagesToSend && response.imagesToSend.length > 0) {
     console.log(`📸 Sending ${response.imagesToSend.length} product image(s)`);
+    const workerBaseUrl = env.WORKER_URL || 'https://whatsapp-ai-agent.ularkimsanov7.workers.dev';
     for (const image of response.imagesToSend) {
-      const result = await sendImageMessageReliable(sendCtx, image.url, image.caption);
+      // Resolve relative image URLs to absolute worker URLs for WhatsApp to fetch
+      const imageUrl = resolveImageUrl(image.url, workerBaseUrl);
+      const result = await sendImageMessageReliable(sendCtx, imageUrl, image.caption);
       if (!result.success) {
         console.error(`Image send failed after ${result.attempts} attempts: ${result.error}`);
-        // Continue with other images even if one fails
       }
-      // Small delay between images
       await new Promise(resolve => setTimeout(resolve, 300));
     }
   }

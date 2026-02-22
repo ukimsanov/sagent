@@ -33,13 +33,7 @@ export default async function RootLayout({
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-	// Get authenticated user (null if not signed in)
-	console.log("[LAYOUT] RootLayout rendering...");
-	const authResult = await withAuth();
-	const { user } = authResult;
-	console.log("[LAYOUT] User authenticated:", !!user);
-	console.log("[LAYOUT] User ID:", user?.id || "none");
-	console.log("[LAYOUT] Timestamp:", new Date().toISOString());
+	const { user } = await withAuth();
 
 	return (
 		<html lang="en" suppressHydrationWarning>

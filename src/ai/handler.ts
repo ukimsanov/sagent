@@ -58,10 +58,14 @@ export interface HandlerResponse {
   searchQuery?: string;
   productsShown?: string[];
   clarificationCount?: number;
-  // New: Products with images to send
+  // Products with images to send
   imagesToSend?: Array<{ url: string; caption?: string }>;
   // Lead tracking actions executed
   businessActions?: Array<{ type: string; [key: string]: unknown }>;
+  // Interactive message fields
+  replyType?: 'text' | 'buttons' | 'list' | null;
+  replyOptions?: Array<{ id: string; title: string; description?: string | null }>;
+  productsForList?: Array<{ id: string; name: string; price: string; category: string }>;
 }
 
 type ResponseAction =
@@ -147,6 +151,48 @@ function isClarifyingQuestion(message: string): boolean {
   return endsWithQuestion && containsClarifyingPhrase;
 }
 
+/**
+ * Extract product-related keywords from recent conversation history.
+ * Used when the current message is a follow-up (e.g., "how much?")
+ * and we need to re-fetch the products being discussed.
+ */
+function extractProductContextFromHistory(
+  history: Array<{ role: 'user' | 'assistant'; content: string }>
+): string | null {
+  // Look at the last few user messages for product-related terms
+  const recentUserMessages = history
+    .filter(m => m.role === 'user')
+    .slice(-3)
+    .map(m => m.content);
+
+  if (recentUserMessages.length === 0) return null;
+
+  // Combine recent user messages and extract product keywords
+  const combined = recentUserMessages.join(' ').toLowerCase();
+
+  // Check if there's anything product-related in recent history
+  const productTerms = [
+    'hoodie', 'hoodies', 't-shirt', 'tshirt', 'tee', 'shirt',
+    'sneaker', 'sneakers', 'shoe', 'shoes', 'jogger', 'joggers',
+    'pant', 'pants', 'jacket', 'jackets', 'hat', 'cap', 'bag',
+    'black', 'white', 'grey', 'gray', 'navy', 'red', 'blue',
+    'show', 'looking for', 'want', 'need',
+  ];
+
+  const hasProductTerms = productTerms.some(term => combined.includes(term));
+  if (!hasProductTerms) return null;
+
+  // Return the most recent product-relevant user message as search query
+  for (let i = recentUserMessages.length - 1; i >= 0; i--) {
+    const msg = recentUserMessages[i].toLowerCase();
+    if (productTerms.some(term => msg.includes(term))) {
+      return recentUserMessages[i];
+    }
+  }
+
+  return null;
+}
+
 
 // ============================================================================
 // Main Entry Point
@@ -225,6 +271,29 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     // LLM decides the action; executor builds the message from verified DB data.
   }
 
+  // Step 1b: Context-aware product loading
+  // If no products found but conversation recently discussed products,
+  // search using recent user messages so the LLM has context for follow-ups
+  // like "how much?", "what size?", "the black one"
+  if (products.length === 0 && ctx.conversationHistory.length > 0) {
+    const contextQuery = extractProductContextFromHistory(ctx.conversationHistory);
+    if (contextQuery) {
+      console.log('🔄 Re-searching with conversation context:', contextQuery);
+      if (ctx.ai && ctx.productVectors) {
+        const semanticResult = await searchProductsVectorize(
+          ctx.productVectors, ctx.ai, ctx.businessId, contextQuery, 5
+        );
+        if (semanticResult.success && semanticResult.results && semanticResult.results.length > 0) {
+          products = await getProductsByIds(ctx.db, semanticResult.results.map(r => r.id));
+        }
+      }
+      if (products.length === 0) {
+        products = await searchProducts(ctx.db, ctx.businessId, contextQuery);
+      }
+      console.log(`🔄 Context search found ${products.length} products`);
+    }
+  }
+
   // Step 2: Build environment snapshot (includes categories + escalation keywords for LLM)
   const environment = buildEnvironmentSnapshot(
     ctx.business,
@@ -250,7 +319,8 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     userInput,
     ctx.openaiApiKey,
     20_000, // 20s timeout
-    ctx.aiGatewayBaseURL
+    ctx.aiGatewayBaseURL,
+    ctx.business.id
   );
 
   // Step 5: Handle LLM response (or fallback)
@@ -350,6 +420,38 @@ async function processLLMDecision(
   // Map conversation_action to ResponseAction
   const action = mapConversationAction(finalDecision.conversation_action);
 
+  // Interactive message fields — pass through LLM decision or auto-upgrade
+  let replyType = finalDecision.reply_type;
+  let replyOptions = finalDecision.reply_options ?? undefined;
+  let productsForList: Array<{ id: string; name: string; price: string; category: string }> | undefined;
+
+  // Auto-upgrade: if showing products with product_ids and LLM didn't set reply_type, use list
+  if (
+    action === 'show_products' &&
+    finalDecision.product_ids &&
+    finalDecision.product_ids.length > 0 &&
+    !replyType
+  ) {
+    replyType = 'list';
+  }
+
+  // Build productsForList from actual product data when sending a list
+  if (replyType === 'list' && products.length > 0) {
+    const productIds = finalDecision.product_ids ?? [];
+    const relevantProducts = productIds.length > 0
+      ? products.filter(p => productIds.includes(p.id))
+      : products;
+
+    productsForList = relevantProducts.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: p.price !== null
+        ? `${p.currency || '$'}${p.price.toFixed(2)}`
+        : 'Price on request',
+      category: p.category || 'Products',
+    }));
+  }
+
   return {
     message: finalDecision.message,
     action,
@@ -359,6 +461,9 @@ async function processLLMDecision(
     productsShown: finalDecision.product_ids ?? undefined,
     imagesToSend,
     businessActions: finalDecision.business_actions as Array<{ type: string; [key: string]: unknown }>,
+    replyType,
+    replyOptions: replyOptions as HandlerResponse['replyOptions'],
+    productsForList,
   };
 }
 
@@ -379,7 +484,7 @@ function mapConversationAction(action: ConversationAction): ResponseAction {
     case 'handoff':
       return 'handoff';
     case 'farewell':
-      return 'answer_question'; // Map to answer_question for now
+      return 'farewell';
     default:
       return 'answer_question';
   }

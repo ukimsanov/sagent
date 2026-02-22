@@ -68,7 +68,7 @@ export async function sendHandoffNotification(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'WhatsApp Agent <notifications@stylehub.demo>',
+        from: `${ctx.business.name} Agent <onboarding@resend.dev>`,
         to: [handoffEmail],
         subject: emailContent.subject,
         html: emailContent.html,

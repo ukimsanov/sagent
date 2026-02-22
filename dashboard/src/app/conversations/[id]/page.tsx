@@ -5,14 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft,
-  Phone,
-  Flag,
   MessageSquare,
   Package,
   HelpCircle,
   AlertTriangle,
   User,
   TrendingUp,
+  Flag,
 } from "lucide-react";
 import Link from "next/link";
 import { getDB, getConversationEvents, getLeadWithSummary } from "@/lib/db";
@@ -116,9 +115,13 @@ export default async function ConversationDetailPage({
   const events = await getConversationEvents(db, id);
 
   // Parse interests from summary if available
-  const interests: string[] = summary?.key_interests
-    ? JSON.parse(summary.key_interests)
-    : [];
+  let interests: string[] = [];
+  try {
+    interests = summary?.key_interests ? JSON.parse(summary.key_interests) : [];
+    if (!Array.isArray(interests)) interests = [];
+  } catch {
+    interests = [];
+  }
 
   // Group events into messages (user + agent pairs)
   const messages = events.map((event) => ({
@@ -161,14 +164,7 @@ export default async function ConversationDetailPage({
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            <Phone className="h-4 w-4 mr-2" />
-            Call
-          </Button>
-          <Button variant="outline" size="sm" className="text-chart-4">
-            <Flag className="h-4 w-4 mr-2" />
-            Flag for Human
-          </Button>
+          {getStatusBadge(lead.status)}
         </div>
       </div>
 

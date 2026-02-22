@@ -17,23 +17,10 @@ import { ActivityItem } from "@/components/dashboard/activity-item";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { LandingPage } from "@/components/landing";
 import { withAuth } from "@workos-inc/authkit-nextjs";
+import { getActionColor, maskPhone } from "@/lib/utils";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
-
-function getActionColor(action: string) {
-  const colors: Record<string, string> = {
-    show_products: "bg-chart-1/10 text-chart-1",
-    ask_clarification: "bg-chart-3/10 text-chart-3",
-    answer_question: "bg-chart-2/10 text-chart-2",
-    empathize: "bg-chart-4/10 text-chart-4",
-    greet: "bg-chart-5/10 text-chart-5",
-    thank: "bg-chart-2/10 text-chart-2",
-    handoff: "bg-destructive/10 text-destructive",
-    farewell: "bg-muted text-muted-foreground",
-  };
-  return colors[action] || "bg-muted text-muted-foreground";
-}
 
 function formatTimeAgo(timestamp: number) {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -44,13 +31,6 @@ function formatTimeAgo(timestamp: number) {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
-}
-
-function maskPhone(phone: string) {
-  if (phone.length >= 4) {
-    return `+1 xxx-xxx-${phone.slice(-4)}`;
-  }
-  return phone;
 }
 
 export default async function DashboardPage() {
