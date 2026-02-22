@@ -1,7 +1,7 @@
 "use client";
 
 import { BlurFade } from "@/components/ui/blur-fade";
-import { MagicCard } from "@/components/ui/magic-card";
+import { Card } from "@/components/ui/card";
 import {
 	Users,
 	Zap,
@@ -9,7 +9,6 @@ import {
 	Brain,
 	Clock,
 	Shield,
-	Sparkles,
 	Inbox
 } from "lucide-react";
 
@@ -59,7 +58,6 @@ export function Features() {
 				<div className="text-center mb-16 sm:mb-20">
 					<BlurFade delay={0.1}>
 						<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
-							<Sparkles className="h-3.5 w-3.5" />
 							Features
 						</div>
 					</BlurFade>
@@ -81,7 +79,7 @@ export function Features() {
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
 						{features.slice(0, 2).map((feature, index) => (
 							<BlurFade key={feature.title} delay={0.1 + index * 0.05}>
-								<MagicCard className="p-6 h-full">
+								<Card className="p-6 h-full">
 									<div className="flex flex-col items-center text-center">
 										<div className="inline-flex items-center justify-center rounded-xl bg-primary/10 text-primary mb-4 h-12 w-12">
 											<feature.icon className="h-6 w-6" />
@@ -89,7 +87,7 @@ export function Features() {
 										<h3 className="font-semibold text-lg mb-2">{feature.title}</h3>
 										<p className="text-muted-foreground text-sm">{feature.description}</p>
 									</div>
-								</MagicCard>
+								</Card>
 							</BlurFade>
 						))}
 					</div>
@@ -98,7 +96,7 @@ export function Features() {
 					<div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
 						{features.slice(2, 5).map((feature, index) => (
 							<BlurFade key={feature.title} delay={0.2 + index * 0.05}>
-								<MagicCard className="p-6 h-full">
+								<Card className="p-6 h-full">
 									<div className="flex flex-col items-center text-center">
 										<div className="inline-flex items-center justify-center rounded-xl bg-primary/10 text-primary mb-4 h-12 w-12">
 											<feature.icon className="h-6 w-6" />
@@ -106,7 +104,7 @@ export function Features() {
 										<h3 className="font-semibold text-lg mb-2">{feature.title}</h3>
 										<p className="text-muted-foreground text-sm">{feature.description}</p>
 									</div>
-								</MagicCard>
+								</Card>
 							</BlurFade>
 						))}
 					</div>
@@ -115,7 +113,7 @@ export function Features() {
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
 						{features.slice(5, 7).map((feature, index) => (
 							<BlurFade key={feature.title} delay={0.3 + index * 0.05}>
-								<MagicCard className="p-6 h-full">
+								<Card className="p-6 h-full">
 									<div className="flex flex-col items-center text-center">
 										<div className="inline-flex items-center justify-center rounded-xl bg-primary/10 text-primary mb-4 h-12 w-12">
 											<feature.icon className="h-6 w-6" />
@@ -123,7 +121,7 @@ export function Features() {
 										<h3 className="font-semibold text-lg mb-2">{feature.title}</h3>
 										<p className="text-muted-foreground text-sm">{feature.description}</p>
 									</div>
-								</MagicCard>
+								</Card>
 							</BlurFade>
 						))}
 					</div>

@@ -1,11 +1,9 @@
 /**
  * LLM Decision Engine Handler
  *
- * This handler implements the "LLM as decision engine, code as executor" pattern:
- * - Fast-path for pure greetings/thanks (no LLM)
- * - LLM decides the conversational action for everything else
- * - Code validates and executes business actions with policy gates
- * - Fallback ladder when LLM fails
+ * Every message goes through the LLM. No deterministic fast-paths.
+ * The LLM decides the conversational action; code validates and executes.
+ * Fallback to handoff only when LLM fails completely.
  */
 
 import {
@@ -13,28 +11,20 @@ import {
   getAllCategories,
   createHumanFlag,
   getBusinessConfig,
-  isWithinBusinessHours,
-  containsEscalationKeyword,
   getProductsByIds,
-  getTopProductsPerCategory,
 } from '../db/queries';
 import type { Business, Lead, ProductWithMetadata, ConversationSummary } from '../db/queries';
 
 // Phase 2: Semantic search
 import { searchProductsVectorize } from './embeddings';
 
-// New modules
+// Modules
 import { callLLMForDecision, isValidDecision, type LLMDecision, type ConversationAction } from './llm';
 import { buildEnvironmentSnapshot, extractSearchQuery, needsProductSearch } from './environment';
 import { executeDecision, validateDecision, shouldSendImages, getProductsWithImages } from './executor';
 import {
   buildDecisionSystemPrompt,
   buildDecisionUserInput,
-  getDeterministicGreeting,
-  getDeterministicThanks,
-  getDeterministicFarewell,
-  getNoProductsTemplate,
-  getProductFallbackTemplate,
   getHandoffMessage,
 } from './prompts';
 
@@ -157,145 +147,6 @@ function isClarifyingQuestion(message: string): boolean {
   return endsWithQuestion && containsClarifyingPhrase;
 }
 
-// ============================================================================
-// Fast-Path Detection
-// ============================================================================
-
-const PURE_GREETING_REGEX = /^(hi|hello|hey|yo|sup|good\s+(morning|afternoon|evening))[\s!.]*$/i;
-const PURE_THANKS_REGEX = /^(thanks?|thank\s+you|thx|ty)[\s!.]*$/i;
-const PURE_FAREWELL_REGEX = /^(bye|goodbye|see\s+ya|later)[\s!.]*$/i;
-
-// Vague shopping phrases that should trigger clarification, not product search
-const VAGUE_PHRASES_REGEX = /\b(something|anything|stuff|things?)\b/i;
-// Note: "nice", "cool", "good" removed - they're often used to express preference ("looks nice", "that's cool")
-
-// Specific product terms that indicate a concrete request (not vague)
-// Includes: product types, sizes, colors, price terms, fit descriptors, and intent terms
-const SPECIFIC_PRODUCT_REGEX = /\b(hoodie|hoodies|jeans|jacket|dress|t-?shirt|pants|shorts|sweater|coat|top|bottoms?|shirt|shoes?|sneakers?|boots?|sandals?|hat|cap|beanie|bag|backpack|size|color|colour|black|white|blue|red|green|small|medium|large|xl|xxl|\$\d+|under\s+\d+|cheap|expensive|warm|cold|winter|summer|casual|formal|cozy|comfy|layering|slim|relaxed|skinny|oversized|fitted|high-?rise|low-?rise|pullover|zip-?up|\b\d{2}\b)\b/i;
-// Note: \b\d{2}\b matches clothing sizes like "32", "34", etc.
-
-function isPureGreeting(message: string): boolean {
-  return message.length < 20 && PURE_GREETING_REGEX.test(message.trim());
-}
-
-function isPureThanks(message: string): boolean {
-  return message.length < 20 && PURE_THANKS_REGEX.test(message.trim());
-}
-
-function isPureFarewell(message: string): boolean {
-  return message.length < 15 && PURE_FAREWELL_REGEX.test(message.trim());
-}
-
-/**
- * Detect vague shopping requests like:
- * - "I need something"
- * - "show me something nice"
- * - "anything cool?"
- *
- * BUT NOT:
- * - "I need something black" (has specific: color)
- * - "show me something like a hoodie" (has specific: hoodie)
- * - "anything under $50" (has specific: price)
- */
-function isVagueRequest(message: string): boolean {
-  const normalized = message.toLowerCase().trim();
-
-  // Must contain vague phrase
-  const hasVaguePhrase = VAGUE_PHRASES_REGEX.test(normalized);
-  if (!hasVaguePhrase) return false;
-
-  // If it also has specific product terms, it's NOT vague
-  const hasSpecificTerm = SPECIFIC_PRODUCT_REGEX.test(normalized);
-  if (hasSpecificTerm) return false;
-
-  // Additional check: very short messages with just "something" are vague
-  // e.g., "I need something", "show me something", "anything?"
-  return true;
-}
-
-/**
- * Get a deterministic clarifying question for vague requests.
- * This prevents searching the DB with "something" and getting 0 results.
- */
-function getVagueRequestClarification(brandTone: 'friendly' | 'professional' | 'casual'): string {
-  const templates = {
-    friendly: "Got you! 😊 Are you looking for tops, bottoms, or accessories? I can help narrow it down!",
-    professional: "I'd be happy to help. Could you tell me what type of item you're looking for — tops, bottoms, or accessories?",
-    casual: "Got you — are you looking for tops, bottoms, or accessories?",
-  };
-  return templates[brandTone];
-}
-
-// ============================================================================
-// Phase 3: Catalog Inquiry Detection
-// ============================================================================
-
-/**
- * Patterns for general catalog inquiries where user wants to see what's available
- * These should show top products per category, not run a search
- */
-const CATALOG_INQUIRY_PATTERNS = [
-  /what (do you|have you|you) (have|got|carry|sell)/i,
-  /show me (everything|all|your (stuff|products|items|catalog))/i,
-  /what('s| is) available/i,
-  /what can i (get|buy|order|see)/i,
-  /what do you guys (have|sell|offer)/i,
-  /let me see (what you have|everything|your stuff)/i,
-  /browse|catalog|inventory/i,
-];
-
-/**
- * Detect general catalog inquiries like:
- * - "what do you have?"
- * - "show me everything"
- * - "what's available?"
- * - "what do you guys sell?"
- */
-function isCatalogInquiry(message: string): boolean {
-  const normalized = message.toLowerCase().trim();
-  return CATALOG_INQUIRY_PATTERNS.some(pattern => pattern.test(normalized));
-}
-
-/**
- * Build a proactive catalog overview response showing top products per category
- */
-function buildCatalogOverviewResponse(
-  categoryProducts: Map<string, ProductWithMetadata[]>,
-  brandTone: 'friendly' | 'professional' | 'casual',
-  leadName: string | null
-): string {
-  const greeting = leadName ? `Hey ${leadName}! ` : '';
-
-  const toneIntros = {
-    friendly: `${greeting}Here's what we've got for you! 🛍️\n\n`,
-    professional: `${greeting}Here's an overview of our current collection:\n\n`,
-    casual: `${greeting}Here's what we're working with:\n\n`,
-  };
-
-  let response = toneIntros[brandTone];
-
-  // Build category sections
-  for (const [category, products] of categoryProducts) {
-    if (products.length === 0) continue;
-
-    response += `*${category}*\n`;
-    for (const product of products) {
-      const price = product.price ? ` - $${product.price.toFixed(2)}` : '';
-      response += `• ${product.name}${price}\n`;
-    }
-    response += '\n';
-  }
-
-  // Add call-to-action
-  const ctas = {
-    friendly: "Anything catching your eye? Just let me know what you'd like to check out! 👀",
-    professional: "Would you like more details on any of these items?",
-    casual: "See anything you like? Just say the word!",
-  };
-
-  response += ctas[brandTone];
-  return response;
-}
 
 // ============================================================================
 // Main Entry Point
@@ -324,122 +175,11 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   // Use sanitized message for all further processing
   const messageText = sanitizedMessage;
 
-  // Phase 4: Check for escalation keywords FIRST → immediate handoff
-  if (containsEscalationKeyword(messageText, config.escalationKeywords)) {
-    console.log('🚨 Escalation keyword detected - immediate handoff');
-    await createHumanFlag(ctx.db, ctx.lead.id, 'high', `Escalation: ${messageText.substring(0, 100)}`);
-    return {
-      message: getHandoffMessage(config.brandTone),
-      action: 'handoff',
-      flaggedForHuman: true,
-      intentType: 'escalation_keyword',
-    };
-  }
-
-  // Phase 4: Check store hours
-  const hoursCheck = isWithinBusinessHours(ctx.business);
-  if (!hoursCheck.isOpen && config.afterHoursMessage) {
-    console.log('🕐 Outside business hours');
-    return {
-      message: config.afterHoursMessage,
-      action: 'answer_question',
-      flaggedForHuman: false,
-      intentType: 'after_hours',
-    };
-  }
-
   // =========================================================================
-  // FAST PATH: Pure greetings/thanks/farewell (no LLM)
+  // ALL messages go through the LLM decision engine
   // =========================================================================
 
-  if (isPureGreeting(messageText)) {
-    console.log('⚡ Fast-path: pure greeting (no LLM)');
-    return {
-      message: getDeterministicGreeting(ctx.lead.name, ctx.business.name, config.brandTone),
-      action: 'greet',
-      flaggedForHuman: false,
-      intentType: 'greeting',
-    };
-  }
-
-  if (isPureThanks(messageText)) {
-    console.log('⚡ Fast-path: pure thanks (no LLM)');
-    return {
-      message: getDeterministicThanks(config.brandTone),
-      action: 'thank',
-      flaggedForHuman: false,
-      intentType: 'thanks',
-    };
-  }
-
-  if (isPureFarewell(messageText)) {
-    console.log('⚡ Fast-path: pure farewell (no LLM)');
-    return {
-      message: getDeterministicFarewell(config.brandTone),
-      action: 'farewell',
-      flaggedForHuman: false,
-      intentType: 'farewell',
-    };
-  }
-
-  // =========================================================================
-  // FAST PATH: Vague shopping requests → clarification (skip product search)
-  // This catches "I need something", "show me anything", etc.
-  // and asks for specifics instead of searching DB and getting 0 results.
-  // =========================================================================
-  if (isVagueRequest(messageText)) {
-    console.log('⚡ Fast-path: vague request → clarification (no product search)');
-    return {
-      message: getVagueRequestClarification(config.brandTone),
-      action: 'ask_clarification',
-      flaggedForHuman: false,
-      intentType: 'vague_request',
-    };
-  }
-
-  // =========================================================================
-  // FAST PATH: Catalog inquiry → show top products per category (no LLM)
-  // This catches "what do you have?", "show me everything", etc.
-  // and proactively shows products instead of treating it as a search query.
-  // =========================================================================
-  if (isCatalogInquiry(messageText)) {
-    console.log('⚡ Fast-path: catalog inquiry → showing top products per category');
-    try {
-      const categoryProducts = await getTopProductsPerCategory(ctx.db, ctx.businessId, 2);
-
-      if (categoryProducts.size > 0) {
-        const response = buildCatalogOverviewResponse(
-          categoryProducts,
-          config.brandTone,
-          ctx.lead.name
-        );
-
-        // Collect all product IDs for tracking
-        const allProductIds: string[] = [];
-        for (const products of categoryProducts.values()) {
-          allProductIds.push(...products.map(p => p.id));
-        }
-
-        return {
-          message: response,
-          action: 'show_products',
-          flaggedForHuman: false,
-          intentType: 'catalog_inquiry',
-          productsShown: allProductIds,
-        };
-      }
-      // If no products, fall through to LLM path
-      console.log('⚠️ No products found for catalog inquiry, falling through to LLM');
-    } catch (error) {
-      console.error('❌ Catalog inquiry error, falling through to LLM:', error);
-    }
-  }
-
-  // =========================================================================
-  // LLM PATH: Everything else goes through the decision engine
-  // =========================================================================
-
-  console.log('🤖 LLM path: calling decision engine');
+  console.log('🤖 Calling LLM decision engine');
 
   // Step 1: Search products if message looks product-related
   let products: ProductWithMetadata[] = [];
@@ -485,14 +225,15 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     // LLM decides the action; executor builds the message from verified DB data.
   }
 
-  // Step 2: Build environment snapshot
+  // Step 2: Build environment snapshot (includes categories + escalation keywords for LLM)
   const environment = buildEnvironmentSnapshot(
     ctx.business,
     ctx.lead,
     ctx.conversationSummary,
     products,
     ctx.conversationHistory,
-    messageText
+    messageText,
+    availableCategories
   );
 
   // Step 3: Build prompts
@@ -518,10 +259,10 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
   }
 
   // =========================================================================
-  // FALLBACK: LLM failed, use deterministic ladder
+  // FALLBACK: LLM failed → hand off to human
   // =========================================================================
 
-  console.log('⚠️ LLM failed or invalid - using fallback ladder');
+  console.log('⚠️ LLM failed or invalid - handing off to human');
   return handleFallback(ctx, products, searchQuery, config);
 }
 
@@ -645,7 +386,7 @@ function mapConversationAction(action: ConversationAction): ResponseAction {
 }
 
 // ============================================================================
-// Fallback Ladder
+// Fallback: LLM failed → hand off to human
 // ============================================================================
 
 interface FallbackConfig {
@@ -654,54 +395,11 @@ interface FallbackConfig {
 
 async function handleFallback(
   ctx: HandlerContext,
-  products: ProductWithMetadata[],
-  searchQuery: string,
+  _products: ProductWithMetadata[],
+  _searchQuery: string,
   config: FallbackConfig
 ): Promise<HandlerResponse> {
-  console.log('🔄 Fallback ladder processing...');
-
-  // 1. Check if it looks like a greeting (more lenient than fast-path)
-  if (ctx.messageText.length < 30 && /\b(hi|hello|hey)\b/i.test(ctx.messageText)) {
-    console.log('🔄 Fallback: greeting detected');
-    return {
-      message: getDeterministicGreeting(ctx.lead.name, ctx.business.name, config.brandTone),
-      action: 'greet',
-      flaggedForHuman: false,
-      intentType: 'greeting_fallback',
-    };
-  }
-
-  // 2. If we have product search results
-  if (searchQuery) {
-    if (products.length === 0) {
-      console.log('🔄 Fallback: no products found');
-      const categories = await getAllCategories(ctx.db, ctx.businessId);
-      return {
-        message: getNoProductsTemplate(searchQuery, categories, config.brandTone),
-        action: 'answer_question',
-        flaggedForHuman: false,
-        intentType: 'product_search_fallback',
-        searchQuery,
-      };
-    }
-
-    console.log('🔄 Fallback: showing products with template');
-    const productList = products.slice(0, 3).map(p => ({
-      name: p.name,
-      price: `$${p.price}`,
-    }));
-    return {
-      message: getProductFallbackTemplate(productList, config.brandTone),
-      action: 'show_products',
-      flaggedForHuman: false,
-      intentType: 'product_search_fallback',
-      searchQuery,
-      productsShown: products.slice(0, 3).map(p => p.id),
-    };
-  }
-
-  // 3. Generic handoff for anything we can't handle
-  console.log('🔄 Fallback: generic handoff');
+  console.log('⚠️ LLM fallback: handing off to human');
   await createHumanFlag(ctx.db, ctx.lead.id, 'medium', 'LLM fallback - could not process');
   return {
     message: getHandoffMessage(config.brandTone),

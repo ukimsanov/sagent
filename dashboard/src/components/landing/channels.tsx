@@ -1,7 +1,7 @@
 "use client";
 
 import { BlurFade } from "@/components/ui/blur-fade";
-import { MagicCard } from "@/components/ui/magic-card";
+import { Card } from "@/components/ui/card";
 import { motion } from "motion/react";
 import { WhatsappIcon } from "@/components/icons/whatsapp-icon";
 import { Clock } from "lucide-react";
@@ -82,16 +82,15 @@ export function Channels() {
 				<div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
 					{channels.map((channel, index) => (
 						<BlurFade key={channel.name} delay={0.2 + index * 0.1}>
-							<MagicCard className="p-6 h-full">
+							<Card className="p-6 h-full">
 								<div className="flex flex-col h-full">
 									{/* Header */}
 									<div className="flex items-start justify-between mb-4">
-										<motion.div
-											whileHover={{ scale: 1.1, rotate: 5 }}
+										<div
 											className={`h-14 w-14 rounded-xl ${channel.bgColor} flex items-center justify-center`}
 										>
 											<channel.icon className="h-7 w-7" style={{ color: channel.color }} />
-										</motion.div>
+										</div>
 										{channel.status === "live" ? (
 											<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
 												<span className="relative flex h-2 w-2">
@@ -124,7 +123,7 @@ export function Channels() {
 										))}
 									</div>
 								</div>
-							</MagicCard>
+							</Card>
 						</BlurFade>
 					))}
 				</div>

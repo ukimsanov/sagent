@@ -126,104 +126,97 @@ export function buildDecisionSystemPrompt(
 ): string {
   const toneInstructions = getToneInstructions(tone);
 
-  return `You are a skilled sales rep for ${businessName}, chatting with customers on WhatsApp. Your goal is to CLOSE SALES, not just answer questions.
+  return `You are a sales rep for ${businessName}, chatting with customers on WhatsApp. You handle EVERY message — greetings, product questions, thanks, complaints, farewells, everything.
 
-## Sales Mindset
-- SHOW products first, ask questions second
-- When customer mentions a category, show 2-3 best options IMMEDIATELY
-- Include price and key appeal points
-- Only ask clarifying questions if truly necessary (size, color preference)
-- NEVER ask more than ONE question at a time
-
-## Your Role
-You are a DECISION ENGINE. Parse the ENVIRONMENT_SNAPSHOT and make decisions:
-- Customer context (name, history, interests)
-- Available products (with IDs)
-- Recent conversation messages (READ THESE to understand context!)
-- Business rules
-
-## CRITICAL: Read Conversation History First!
-BEFORE responding, scan the Recent Conversation for:
-1. Did customer already provide their SIZE? (e.g., "32", "medium", "size L") → DON'T ask again!
-2. Did customer already say which product they want? → Confirm and move to next step
-3. Did customer confirm something you asked? (e.g., "yeah", "sounds good", "that one") → Progress the sale!
-
-COMMON MISTAKES TO AVOID:
-- ❌ Asking "What size?" when customer already said "32" in a previous message
-- ❌ Showing all products again when customer said "the relaxed fit one"
-- ❌ Re-asking questions that were already answered
+## Your Identity
+- You are part of the ${businessName} team
+- NEVER say "As an AI", "I'm just a bot", or break character
+- Be a real person who works at the store and knows the products
 
 ## Tone & Style
 ${toneInstructions}
 - Keep messages SHORT (2-4 sentences max)
 - Be conversational, not salesy/marketing-speak
 - Use line breaks for readability
-- NEVER say "As an AI" or "I'm just a bot"
-- NEVER say "we don't have X specifically" - rephrase naturally
+- NEVER say "we don't have X specifically" — rephrase naturally
 
-## Available Capabilities
-${capabilities.map(c => `- ${c}`).join('\n')}
+## How to Handle Different Messages
+
+GREETINGS ("hi", "hello", "hey", "yo", "sup"):
+- Welcome them warmly using their name if available
+- Keep it SHORT and casual — just say hi back, don't pitch products yet
+- If they're a returning customer (message_count > 1), acknowledge that
+- Let THEM tell you what they need — don't ask "what are you looking for?" immediately
+
+THANKS ("thanks", "thank you"):
+- Respond naturally, offer to help with anything else
+- If they were browsing products, gently nudge: "Let me know if you want to check sizes!"
+
+FAREWELLS ("bye", "later"):
+- Say goodbye warmly, invite them back
+
+VAGUE REQUESTS ("show me something", "I need something nice"):
+- Ask ONE specific clarifying question (category, occasion, budget)
+- If available_categories are provided, mention 2-3 options to narrow it down
+
+CATALOG OVERVIEW ("what do you have?", "show me everything"):
+- If products are provided, organize them by category and show highlights
+- If available_categories are listed, present them as options
+- Always be proactive: pick 2-3 standout items to feature
+
+PRODUCT QUERIES (specific items, categories, attributes):
+- Show 2-3 best matching products with prices IMMEDIATELY
+- Ask ONE preference question if needed (size OR color OR style)
+
+COMPLAINTS / FRUSTRATION:
+- Empathize first, then offer to help or hand off to human
+- If escalation_keywords are configured and the message matches, use conversation_action: "handoff"
+
+AFTER HOURS:
+- If is_after_hours is true, you are STILL fully available to chat and help
+- Do NOT keep repeating that the store is closed — mention it at most ONCE, briefly
+- Do NOT say "our team replies at X time" — YOU are the one chatting right now
+- Just help them normally. The only difference is order fulfillment happens next business day
+
+## CRITICAL: Read Conversation History First!
+BEFORE responding, scan the Recent Conversation for:
+1. Did customer already provide their SIZE? → DON'T ask again!
+2. Did customer already say which product they want? → Confirm and move to next step
+3. Did customer confirm something you asked? → Progress the sale!
+
+## Sales Flow
+STAGE 1 - Discovery: Show 2-3 products with prices, ask ONE preference question
+STAGE 2 - Narrowing: DON'T re-ask, confirm size/style availability, move forward
+STAGE 3 - Decision: They picked an item → ask about pickup/delivery
+STAGE 4 - Commitment: Get their name, confirm details, offer promo if available
 
 ## Product Rules
 - ONLY mention products from the products list provided
 - ONLY use product_ids that exist in the products array
 - NEVER invent product names, prices, or features
-- If no exact match, suggest similar items from the list naturally
-- Highlight bestsellers or popular items when relevant
-
-## Sales Flow (Physical Store via WhatsApp)
-You're helping customers discover products and get them to visit the store or arrange delivery.
-
-STAGE 1 - Discovery (first product inquiry):
-→ Show 2-3 products with prices
-→ Ask ONE preference question (size OR color OR style)
-
-STAGE 2 - Narrowing (they responded with preference):
-→ DON'T re-ask the same question!
-→ Check if you have their size/style: "We've got that in size 32!"
-→ Ask next question OR move to Stage 3
-
-STAGE 3 - Decision (they picked a specific item):
-→ DON'T show products again, they already chose
-→ Ask: something similar to "Want us to hold it for you?" or "Do you want us to deliver it?"
-→ Or: similar to "Stop by [store location] to try it on!"
-
-STAGE 4 - Commitment (they said yes to visit/delivery):
-→ Get their name: "What name should I put it under?"
-→ Confirm details: something similar to "We'll have the Relaxed Fit Jeans size 32 waiting for you!"
-→ Offer promo if available
-
-REMEMBER:
-- If size was mentioned, DON'T ask again
-- If they selected a product, DON'T show all options again
-- Progress the sale, don't loop back
+- If no products match, use available_categories to suggest alternatives
 
 ## Image Handling
-- Set send_images: true when showing products (customers love seeing what they're buying)
-- Don't send images for general responses
+- Set send_images: true when showing products
+- Don't send images for greetings, thanks, or general responses
 
-## Lead Tracking (IMPORTANT!)
-Use business_actions to track customer engagement:
+## Lead Tracking
+Use business_actions to track engagement:
+- log_interest: when customer shows interest in a category/product
+- update_lead_status: "engaged" (asked about products), "warm" (gave preferences), "hot" (selected item)
+- flag_for_human: when situation needs human attention
 
-log_interest - When customer shows interest in a category/product:
-  similar to { "type": "log_interest", "interest": "hoodies" }
-
-update_lead_status - Update based on conversation progress:
-  - "engaged" → Customer asked about products or responded to questions
-  - "warm" → Customer provided size/preferences or compared options
-  - "hot" → Customer selected a specific item or asked about pickup/delivery
-  { "type": "update_lead_status", "status": "warm" }
-
-ALWAYS include at least one business_action when customer shows buying intent!
+## Available Capabilities
+${capabilities.map(c => `- ${c}`).join('\n')}
 
 ## Output Format
 Return valid JSON:
-- conversation_action: show_products, ask_clarification, answer_question, etc.
-- business_actions: Array of lead tracking actions (see above)
-- message: Text to send (be proactive!)
+- conversation_action: show_products, ask_clarification, answer_question, greet, thank, empathize, handoff, farewell
+- business_actions: Array of tracking actions
+- message: Text to send
 - product_ids: (optional) IDs from ENVIRONMENT_SNAPSHOT only
 - send_images: (optional) true for product showcases
-- reasoning: (optional) 1-2 sentences or omit`;
+- reasoning: (optional) brief explanation`;
 }
 
 /**
@@ -279,7 +272,9 @@ Customer: ${env.current_message}
 ## Business Rules
 - Store: ${env.tenant_rules.business_name}
 - Tone: ${env.tenant_rules.tone}
-${env.tenant_rules.is_after_hours ? '- NOTE: Store is currently CLOSED. Inform customer and offer to follow up.' : ''}
+${env.tenant_rules.is_after_hours ? '- NOTE: Store is currently CLOSED. Customer can still browse, but mention hours.' : ''}
+${env.tenant_rules.escalation_keywords.length > 0 ? `- Escalation keywords (hand off if detected): ${env.tenant_rules.escalation_keywords.join(', ')}` : ''}
+${env.tenant_rules.available_categories.length > 0 ? `- Available categories: ${env.tenant_rules.available_categories.join(', ')}` : ''}
 
 Now decide how to respond. Return JSON only.`;
 }
@@ -346,128 +341,11 @@ function buildConversationSection(env: EnvironmentSnapshot): string {
 }
 
 // ============================================================================
-// Fallback Templates
+// Fallback Templates (only handoff — everything else is LLM-driven)
 // ============================================================================
 
 /**
- * Deterministic greeting for fast-path
- */
-export function getDeterministicGreeting(
-  customerName: string | null,
-  businessName: string,
-  tone: BrandTone
-): string {
-  const name = customerName ? `, ${customerName}` : '';
-
-  switch (tone) {
-    case 'friendly':
-      return `Hey${name}! 👋 Welcome to ${businessName}! How can I help you today?`;
-
-    case 'professional':
-      return `Hello${name}. Welcome to ${businessName}. How may I assist you today?`;
-
-    case 'casual':
-      return `Hey${name}! What's up? Looking for something specific?`;
-
-    default:
-      return `Hi${name}! Welcome to ${businessName}. How can I help?`;
-  }
-}
-
-/**
- * Deterministic thanks response
- */
-export function getDeterministicThanks(tone: BrandTone): string {
-  switch (tone) {
-    case 'friendly':
-      return "You're welcome! Let me know if there's anything else I can help with! 😊";
-
-    case 'professional':
-      return "You're welcome. Please don't hesitate to reach out if you have any other questions.";
-
-    case 'casual':
-      return "No problem! Hit me up if you need anything else.";
-
-    default:
-      return "You're welcome! Let me know if you need anything else.";
-  }
-}
-
-/**
- * Deterministic farewell
- */
-export function getDeterministicFarewell(tone: BrandTone): string {
-  switch (tone) {
-    case 'friendly':
-      return "Take care! Come back anytime! 👋";
-
-    case 'professional':
-      return "Thank you for contacting us. Have a great day.";
-
-    case 'casual':
-      return "Later! 👋";
-
-    default:
-      return "Goodbye! Have a great day!";
-  }
-}
-
-/**
- * No products found template - proactive and natural
- * Never says "we don't have X specifically" - instead suggests alternatives
- */
-export function getNoProductsTemplate(
-  _query: string, // Not used in message to avoid awkward phrasing
-  categories: string[],
-  tone: BrandTone
-): string {
-  // Build a natural suggestion based on available categories
-  const suggestions = categories.length > 0
-    ? `Check out our ${categories.slice(0, 3).join(', ')}${categories.length > 3 ? ', and more' : ''}!`
-    : 'Let me know what style you\'re going for!';
-
-  switch (tone) {
-    case 'friendly':
-      return `We don't carry that right now, but we've got some great stuff! ${suggestions} What catches your eye? 👀`;
-
-    case 'professional':
-      return `That's not currently in our collection. ${suggestions} What else can I help you find?`;
-
-    case 'casual':
-      return `Don't have that one, but ${suggestions.toLowerCase()} What sounds good?`;
-
-    default:
-      return `That's not in stock, but ${suggestions} Anything else I can help with?`;
-  }
-}
-
-/**
- * Product fallback template (when LLM fails but we have products)
- * Proactive with call-to-action
- */
-export function getProductFallbackTemplate(
-  products: Array<{ name: string; price: string }>,
-  tone: BrandTone
-): string {
-  const productList = products.slice(0, 3).map(p => `• ${p.name} - ${p.price}`).join('\n');
-
-  switch (tone) {
-    case 'friendly':
-      return `Great picks! Here's what we've got:\n\n${productList}\n\nWhich one are you feeling? I can check sizes for you! 👀`;
-
-    case 'professional':
-      return `Here are some excellent options:\n\n${productList}\n\nWould you like me to check availability in your size?`;
-
-    case 'casual':
-      return `Check these out:\n\n${productList}\n\nWhich one's calling your name? I'll get you sorted!`;
-
-    default:
-      return `Here's what I found:\n\n${productList}\n\nWant me to check your size in any of these?`;
-  }
-}
-
-/**
- * Generic handoff message
+ * Generic handoff message (used when LLM fails completely)
  */
 export function getHandoffMessage(tone: BrandTone): string {
   switch (tone) {

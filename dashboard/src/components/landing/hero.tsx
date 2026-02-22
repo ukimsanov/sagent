@@ -4,8 +4,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
-import { AvatarGroup } from "@/components/ui/avatar-group";
-import { ArrowRight, Check, Star, Play } from "lucide-react";
+import { ArrowRight, Check, Play } from "lucide-react";
 import { useState, useEffect } from "react";
 
 // Animated chat conversation
@@ -39,7 +38,6 @@ function ChatBubble({
 }) {
 	const isUser = message.role === "user";
 
-	// Always render the message to prevent layout shifts - only animate opacity
 	return (
 		<motion.div
 			initial={{ opacity: 0 }}
@@ -78,11 +76,9 @@ function AnimatedChat() {
 
 		const totalDuration = 12000;
 		const interval = setInterval(() => {
-			// Fade out all messages first
 			setVisibleMessages([]);
 			setIsTyping(false);
 
-			// Wait 500ms, then restart animation
 			setTimeout(() => {
 				chatMessages.forEach((msg, index) => {
 					if (msg.role === "agent" && msg.delay > 0) {
@@ -112,7 +108,7 @@ function AnimatedChat() {
 						<div className="flex-1 min-w-0">
 							<p className="font-medium text-sm truncate">Urban Street Store</p>
 							<div className="flex items-center gap-1.5 text-xs text-white/80">
-								<span className="h-2 w-2 rounded-full bg-green-400 animate-pulse flex-shrink-0"></span>
+								<span className="h-2 w-2 rounded-full bg-green-400 shrink-0"></span>
 								<span className="truncate">AI Agent • Online</span>
 							</div>
 						</div>
@@ -134,7 +130,7 @@ function AnimatedChat() {
 							/>
 						))}
 
-						{/* Typing indicator - always rendered, opacity controlled */}
+						{/* Typing indicator */}
 						<motion.div
 							animate={{ opacity: isTyping ? 1 : 0 }}
 							transition={{ duration: 0.2 }}
@@ -191,17 +187,6 @@ function AnimatedChat() {
 					</div>
 				</div>
 			</div>
-
-			{/* Response time badge */}
-			<div className="mt-4 flex justify-center">
-				<div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-card border text-sm">
-					<span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
-					<span className="text-muted-foreground">
-						Avg. response time:{" "}
-						<span className="font-medium text-foreground">2.3s</span>
-					</span>
-				</div>
-			</div>
 		</div>
 	);
 }
@@ -209,11 +194,9 @@ function AnimatedChat() {
 export function Hero() {
 	return (
 		<section className="relative pt-20 sm:pt-24 lg:pt-32 pb-16 sm:pb-20 lg:pb-24 overflow-hidden">
-			{/* Background */}
+			{/* Subtle background gradient */}
 			<div className="absolute inset-0 -z-10">
-				<div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-background to-background" />
-				<div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[100px]" />
-				<div className="absolute top-40 right-1/4 w-[400px] h-[400px] bg-cyan-500/10 rounded-full blur-[100px]" />
+				<div className="absolute inset-0 bg-gradient-to-b from-muted/50 via-background to-background" />
 			</div>
 
 			<div className="max-w-7xl mx-auto px-8 sm:px-12 lg:px-12 xl:px-16">
@@ -223,11 +206,7 @@ export function Hero() {
 						{/* Badge */}
 						<BlurFade delay={0.1}>
 							<div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8">
-								<span className="relative flex h-2 w-2">
-									<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-									<span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-								</span>
-								Now with 35% faster responses
+								WhatsApp AI Sales Agent
 							</div>
 						</BlurFade>
 
@@ -247,41 +226,8 @@ export function Hero() {
 							</p>
 						</BlurFade>
 
-						{/* Social proof */}
-						<BlurFade delay={0.4}>
-							<div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 mb-10">
-								<div className="flex items-center gap-3">
-									<AvatarGroup
-										avatars={[
-											{ src: "https://i.pravatar.cc/150?img=1", fallback: "JD" },
-											{ src: "https://i.pravatar.cc/150?img=5", fallback: "SM" },
-											{ src: "https://i.pravatar.cc/150?img=8", fallback: "AK" },
-											{ src: "https://i.pravatar.cc/150?img=12", fallback: "MR" },
-											{ src: "https://i.pravatar.cc/150?img=20", fallback: "LS" },
-											{ fallback: "+495" },
-										]}
-										max={5}
-									/>
-									<span className="text-sm text-muted-foreground">
-										500+ businesses
-									</span>
-								</div>
-								<div className="flex items-center gap-1">
-									{[1, 2, 3, 4, 5].map((i) => (
-										<Star
-											key={i}
-											className="h-4 w-4 fill-yellow-400 text-yellow-400"
-										/>
-									))}
-									<span className="text-sm text-muted-foreground ml-1">
-										4.9/5 rating
-									</span>
-								</div>
-							</div>
-						</BlurFade>
-
 						{/* CTAs */}
-						<BlurFade delay={0.5}>
+						<BlurFade delay={0.4}>
 							<div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-6">
 								<Button size="lg" className="gap-2" asChild>
 									<Link href="/auth/login">
@@ -313,25 +259,6 @@ export function Hero() {
 						<AnimatedChat />
 					</BlurFade>
 				</div>
-
-				{/* Trusted by */}
-				<BlurFade delay={0.6}>
-					<div className="mt-24 pt-12 border-t border-border/50">
-						<p className="text-center text-sm text-muted-foreground mb-8">
-							Trusted by innovative companies
-						</p>
-						<div className="flex items-center justify-center gap-12 opacity-50 grayscale">
-							{["TechCrunch", "Forbes", "Wired", "Inc."].map((name) => (
-								<div
-									key={name}
-									className="text-xl font-bold text-muted-foreground"
-								>
-									{name}
-								</div>
-							))}
-						</div>
-					</div>
-				</BlurFade>
 			</div>
 		</section>
 	);

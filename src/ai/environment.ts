@@ -40,6 +40,8 @@ export interface TenantRules {
   tone: BrandTone;
   business_name: string;
   is_after_hours: boolean;
+  escalation_keywords: string[];
+  available_categories: string[];
   max_auto_refund?: number;
   available_discount_codes?: string[];
 }
@@ -96,7 +98,8 @@ export function buildEnvironmentSnapshot(
   conversationSummary: ConversationSummary | null,
   products: ProductWithMetadata[],
   recentMessages: Array<{ role: string; content: string }>,
-  currentMessage: string
+  currentMessage: string,
+  availableCategories: string[] = []
 ): EnvironmentSnapshot {
   const config = getBusinessConfig(business);
   const businessHours = isWithinBusinessHours(business);
@@ -104,15 +107,17 @@ export function buildEnvironmentSnapshot(
   return {
     customer: buildCustomerContext(lead, conversationSummary),
     products: products.map(p => buildProductContext(p)),
-    recent_messages: recentMessages, // Full conversation from KV (up to 2000 tokens)
+    recent_messages: recentMessages,
     current_message: currentMessage,
     capabilities: buildCapabilities(config),
     tenant_rules: {
       tone: config.brandTone,
       business_name: business.name,
       is_after_hours: !businessHours.isOpen,
-      max_auto_refund: 20, // Default $20 limit
-      available_discount_codes: [], // TODO: Load from DB
+      escalation_keywords: config.escalationKeywords,
+      available_categories: availableCategories,
+      max_auto_refund: 20,
+      available_discount_codes: [],
     },
   };
 }

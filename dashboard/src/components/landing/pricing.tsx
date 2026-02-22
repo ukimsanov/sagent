@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
-import { Check, Sparkles, Zap } from "lucide-react";
+import { Check, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const plans = [
@@ -66,7 +66,6 @@ export function Pricing() {
 				<div className="text-center mb-16">
 					<BlurFade delay={0.1}>
 						<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4">
-							<Sparkles className="h-3.5 w-3.5" />
 							Pricing
 						</div>
 					</BlurFade>
@@ -94,14 +93,12 @@ export function Pricing() {
 										: "border-border/50 hover:border-border hover:shadow-lg"
 								)}
 							>
-								{/* Popular badge with shine effect */}
+								{/* Popular badge */}
 								{plan.popular && (
 									<div className="absolute -top-3 left-1/2 -translate-x-1/2">
-										<div className="relative inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg overflow-hidden">
-											{/* Shine effect */}
-											<span className="absolute inset-0 -translate-x-full animate-[shine_3s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent" />
-											<Zap className="h-3 w-3 relative" />
-											<span className="relative">Most Popular</span>
+										<div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-medium shadow-lg">
+											<Zap className="h-3 w-3" />
+											Most Popular
 										</div>
 									</div>
 								)}
