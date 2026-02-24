@@ -821,3 +821,148 @@ export async function toggleProductStock(
     .bind(inStock ? 1 : 0, Math.floor(Date.now() / 1000), productId)
     .run();
 }
+
+// ============================================================================
+// Time-Series Analytics Queries
+// ============================================================================
+
+export interface TimeSeriesPoint {
+  date: string;
+  messages: number;
+  unique_leads: number;
+  handoffs: number;
+  avg_response_time: number;
+}
+
+/**
+ * Get daily time-series analytics data for charts
+ */
+export async function getTimeSeriesData(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+): Promise<TimeSeriesPoint[]> {
+  const result = await db
+    .prepare(`
+      SELECT
+        DATE(timestamp / 1000, 'unixepoch') as date,
+        COUNT(*) as messages,
+        COUNT(DISTINCT lead_id) as unique_leads,
+        SUM(CASE WHEN action = 'handoff' OR flagged_for_human = 1 THEN 1 ELSE 0 END) as handoffs,
+        COALESCE(AVG(CASE WHEN processing_time_ms IS NOT NULL THEN processing_time_ms END), 0) as avg_response_time
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+      GROUP BY date
+      ORDER BY date ASC
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<TimeSeriesPoint>();
+
+  return result.results || [];
+}
+
+export interface PeakHourPoint {
+  hour: number;
+  day_of_week: number;
+  count: number;
+}
+
+/**
+ * Get peak hours heatmap data (hour x day of week)
+ */
+export async function getPeakHoursData(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+): Promise<PeakHourPoint[]> {
+  const result = await db
+    .prepare(`
+      SELECT
+        CAST(strftime('%H', timestamp / 1000, 'unixepoch') AS INTEGER) as hour,
+        CAST(strftime('%w', timestamp / 1000, 'unixepoch') AS INTEGER) as day_of_week,
+        COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+      GROUP BY hour, day_of_week
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<PeakHourPoint>();
+
+  return result.results || [];
+}
+
+export interface AnalyticsSummaryWithComparison {
+  current: {
+    totalMessages: number;
+    uniqueLeads: number;
+    avgProcessingTime: number;
+    handoffRate: number;
+    resolutionRate: number;
+    actionBreakdown: Record<ResponseAction, number>;
+  };
+  previous: {
+    totalMessages: number;
+    uniqueLeads: number;
+    avgProcessingTime: number;
+    handoffRate: number;
+    resolutionRate: number;
+  };
+  changes: {
+    totalMessages: number;
+    uniqueLeads: number;
+    avgProcessingTime: number;
+    handoffRate: number;
+    resolutionRate: number;
+  };
+}
+
+/**
+ * Get analytics with comparison to previous equivalent period
+ */
+export async function getAnalyticsSummaryWithComparison(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+): Promise<AnalyticsSummaryWithComparison> {
+  const periodLength = endTime - startTime;
+  const prevStart = startTime - periodLength;
+  const prevEnd = startTime;
+
+  const [current, previous] = await Promise.all([
+    getAnalyticsSummary(db, businessId, startTime, endTime),
+    getAnalyticsSummary(db, businessId, prevStart, prevEnd),
+  ]);
+
+  const currentResolutionRate = current.totalMessages > 0
+    ? 100 - current.handoffRate
+    : 0;
+  const previousResolutionRate = previous.totalMessages > 0
+    ? 100 - previous.handoffRate
+    : 0;
+
+  function pctChange(curr: number, prev: number): number {
+    if (prev === 0) return curr > 0 ? 100 : 0;
+    return Math.round(((curr - prev) / prev) * 100);
+  }
+
+  return {
+    current: {
+      ...current,
+      resolutionRate: currentResolutionRate,
+    },
+    previous: {
+      ...previous,
+      resolutionRate: previousResolutionRate,
+    },
+    changes: {
+      totalMessages: pctChange(current.totalMessages, previous.totalMessages),
+      uniqueLeads: pctChange(current.uniqueLeads, previous.uniqueLeads),
+      avgProcessingTime: pctChange(current.avgProcessingTime, previous.avgProcessingTime),
+      handoffRate: pctChange(current.handoffRate, previous.handoffRate),
+      resolutionRate: pctChange(currentResolutionRate, previousResolutionRate),
+    },
+  };
+}

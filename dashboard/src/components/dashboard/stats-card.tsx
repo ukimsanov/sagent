@@ -9,12 +9,13 @@ import {
   Clock,
   AlertCircle,
   TrendingUp,
+  TrendingDown,
   Activity,
   BarChart3,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
-// Map icon names to components (since we can't pass components from server to client)
 const iconMap: Record<string, LucideIcon> = {
   "message-square": MessageSquare,
   users: Users,
@@ -23,6 +24,7 @@ const iconMap: Record<string, LucideIcon> = {
   "trending-up": TrendingUp,
   activity: Activity,
   "bar-chart": BarChart3,
+  "shield-check": ShieldCheck,
 };
 
 interface StatsCardProps {
@@ -33,6 +35,10 @@ interface StatsCardProps {
   iconName: string;
   delay?: number;
   decimalPlaces?: number;
+  /** Percentage change vs previous period. Positive = increase. */
+  change?: number;
+  /** If true, a positive change is bad (e.g. handoff rate going up). */
+  invertColor?: boolean;
 }
 
 export function StatsCard({
@@ -43,8 +49,14 @@ export function StatsCard({
   iconName,
   delay = 0,
   decimalPlaces = 0,
+  change,
+  invertColor = false,
 }: StatsCardProps) {
   const Icon = iconMap[iconName] || Activity;
+
+  const showChange = change !== undefined && change !== 0;
+  const isPositiveChange = change !== undefined && change > 0;
+  const isGood = invertColor ? !isPositiveChange : isPositiveChange;
 
   return (
     <BlurFade delay={delay}>
@@ -60,7 +72,25 @@ export function StatsCard({
             <NumberTicker value={value} decimalPlaces={decimalPlaces} />
             {suffix}
           </div>
-          <p className="text-xs text-muted-foreground mt-1">{description}</p>
+          <div className="flex items-center gap-1.5 mt-1">
+            {showChange && (
+              <span
+                className={`inline-flex items-center gap-0.5 text-xs font-medium ${
+                  isGood
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {isPositiveChange ? (
+                  <TrendingUp className="h-3 w-3" />
+                ) : (
+                  <TrendingDown className="h-3 w-3" />
+                )}
+                {Math.abs(change!)}%
+              </span>
+            )}
+            <p className="text-xs text-muted-foreground">{description}</p>
+          </div>
         </CardContent>
       </Card>
     </BlurFade>
