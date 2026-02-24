@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, getProductById, updateProduct, deleteProduct, toggleProductStock } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessId } from "@/lib/auth-utils";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 
 interface RouteParams {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     const product = await getProductById(db, id);
 
@@ -56,7 +56,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     // Verify the product exists and belongs to the user's business
     const existingProduct = await getProductById(db, id);
@@ -161,7 +161,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     // Verify the product exists and belongs to the user's business
     const existingProduct = await getProductById(db, id);
@@ -194,7 +194,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     // Verify the product exists and belongs to the user's business
     const existingProduct = await getProductById(db, id);

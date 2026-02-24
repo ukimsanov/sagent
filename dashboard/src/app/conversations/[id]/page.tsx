@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { getDB, getConversationEvents, getLeadWithSummary } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessForPage } from "@/lib/auth-utils";
 import { notFound, redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 
@@ -99,7 +99,7 @@ export default async function ConversationDetailPage({
   const { id } = await params;
 
   const db = await getDB();
-  const businessId = await getUserBusinessId(db, user.id);
+  const businessId = await requireBusinessForPage(db, user.id);
   const leadData = await getLeadWithSummary(db, id);
 
   if (!leadData) {

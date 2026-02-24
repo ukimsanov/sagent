@@ -9,7 +9,7 @@ import {
   getTopSearchQueries,
   ResponseAction
 } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessForPage } from "@/lib/auth-utils";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import { AnimatedSection } from "@/components/dashboard/animated-section";
 import { AnimatedProgress } from "@/components/dashboard/animated-progress";
@@ -44,7 +44,7 @@ export default async function DashboardPage() {
   const db = await getDB();
 
   // Get business ID for authenticated user
-  const businessId = await getUserBusinessId(db, user.id);
+  const businessId = await requireBusinessForPage(db, user.id);
 
   // Get analytics for the last 24 hours
   const now = Date.now();

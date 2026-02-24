@@ -4,9 +4,6 @@
  * Links WorkOS user IDs to business accounts via user_businesses table
  */
 
-// Fallback business ID for demo/development (when user has no assigned business)
-const DEMO_BUSINESS_ID = "demo-store-001";
-
 export interface UserBusiness {
   id: string;
   workos_user_id: string;
@@ -20,31 +17,49 @@ export interface UserBusiness {
  *
  * @param db - D1 database instance
  * @param workosUserId - WorkOS user ID
- * @returns Business ID or demo ID if not found
- *
- * For development/demo: Returns DEMO_BUSINESS_ID if user has no assigned business
- * In production: Should throw error or redirect to onboarding
+ * @returns Business ID or null if user has no business (needs onboarding)
  */
 export async function getUserBusinessId(
   db: D1Database,
   workosUserId: string
-): Promise<string> {
+): Promise<string | null> {
   const result = await db
     .prepare('SELECT business_id FROM user_businesses WHERE workos_user_id = ? LIMIT 1')
     .bind(workosUserId)
     .first<{ business_id: string }>();
 
-  if (!result?.business_id) {
-    // In development/demo mode, fall back to demo business
-    // In production, you might want to:
-    // - Redirect to onboarding
-    // - Throw an error
-    // - Create a new business for the user
-    console.warn(`No business found for user ${workosUserId}, using demo business`);
-    return DEMO_BUSINESS_ID;
-  }
+  return result?.business_id || null;
+}
 
-  return result.business_id;
+/**
+ * Get the business ID for a WorkOS user, throwing if not found.
+ * Use this in API routes where a business is required.
+ */
+export async function requireBusinessId(
+  db: D1Database,
+  workosUserId: string
+): Promise<string> {
+  const businessId = await getUserBusinessId(db, workosUserId);
+  if (!businessId) {
+    throw new Error('NO_BUSINESS');
+  }
+  return businessId;
+}
+
+/**
+ * Get business ID or redirect to onboarding.
+ * Use this in protected page server components.
+ */
+export async function requireBusinessForPage(
+  db: D1Database,
+  workosUserId: string
+): Promise<string> {
+  const businessId = await getUserBusinessId(db, workosUserId);
+  if (!businessId) {
+    const { redirect } = await import('next/navigation');
+    return redirect('/onboarding') as never;
+  }
+  return businessId;
 }
 
 /**

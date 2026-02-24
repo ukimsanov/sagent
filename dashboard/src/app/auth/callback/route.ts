@@ -11,4 +11,4 @@
 
 import { handleAuth } from '@workos-inc/authkit-nextjs';
 
-export const GET = handleAuth({ returnPathname: '/conversations' });
+export const GET = handleAuth({ returnPathname: '/' });

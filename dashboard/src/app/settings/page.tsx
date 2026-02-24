@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDB, getBusinessById } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessForPage } from "@/lib/auth-utils";
 import { SettingsForm } from "./settings-form";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { MessageSquare, Users, Clock, Settings, Power } from "lucide-react";
@@ -18,7 +18,7 @@ export default async function SettingsPage() {
   }
 
   const db = await getDB();
-  const businessId = await getUserBusinessId(db, user.id);
+  const businessId = await requireBusinessForPage(db, user.id);
   const business = await getBusinessById(db, businessId);
 
   if (!business) {
@@ -70,7 +70,6 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent>
               <SettingsForm
-                businessId={business.id}
                 section="status"
                 initialData={{
                   ai_enabled: business.ai_enabled ?? 1,
@@ -98,7 +97,6 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent>
               <SettingsForm
-                businessId={business.id}
                 section="brand"
                 initialData={{
                   brand_tone: business.brand_tone || "friendly",
@@ -127,7 +125,6 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent>
               <SettingsForm
-                businessId={business.id}
                 section="handoff"
                 initialData={{
                   handoff_email: business.handoff_email || "",
@@ -158,7 +155,6 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent>
               <SettingsForm
-                businessId={business.id}
                 section="hours"
                 initialData={{
                   timezone: business.timezone || "America/New_York",

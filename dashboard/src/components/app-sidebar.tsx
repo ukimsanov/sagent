@@ -27,6 +27,7 @@ import type { AuthUser } from "@/types/auth";
 
 interface AppSidebarProps {
   user: AuthUser | null;
+  businessName?: string | null;
 }
 
 const navItems = [
@@ -52,7 +53,7 @@ const navItems = [
   },
 ];
 
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, businessName }: AppSidebarProps) {
   const pathname = usePathname();
   // user prop is available for future use (e.g., displaying user info in sidebar)
 
@@ -84,10 +85,12 @@ export function AppSidebar({ user }: AppSidebarProps) {
             />
           </motion.div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold group-hover:text-primary transition-colors">
-              WhatsApp Agent
+            <span className="text-sm font-semibold group-hover:text-primary transition-colors truncate max-w-[140px]">
+              {businessName || "WhatsApp Agent"}
             </span>
-            <span className="text-xs text-muted-foreground">Dashboard</span>
+            <span className="text-xs text-muted-foreground">
+              {businessName ? "AI Agent" : "Dashboard"}
+            </span>
           </div>
         </Link>
       </SidebarHeader>

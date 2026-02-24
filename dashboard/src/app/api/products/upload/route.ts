@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getDB } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessId } from "@/lib/auth-utils";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 
 /**
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     // Get the form data with the image file
     const formData = await request.formData();

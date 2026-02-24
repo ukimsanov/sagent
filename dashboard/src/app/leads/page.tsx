@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Flame, Thermometer, CheckCircle } from "lucide-react";
 import { getDB, getLeads } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessForPage } from "@/lib/auth-utils";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { LeadsTable } from "@/components/dashboard/leads-table";
@@ -45,7 +45,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const offset = (page - 1) * ITEMS_PER_PAGE;
 
   const db = await getDB();
-  const businessId = await getUserBusinessId(db, user.id);
+  const businessId = await requireBusinessForPage(db, user.id);
   const { leads, total } = await getLeads(db, businessId, {
     limit: ITEMS_PER_PAGE,
     offset,

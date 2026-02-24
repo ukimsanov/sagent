@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, updateBusinessConfig } from "@/lib/db";
+import { requireBusinessId } from "@/lib/auth-utils";
+import { withAuth } from "@workos-inc/authkit-nextjs";
 
 // Note: OpenNext for Cloudflare uses Node.js runtime, not edge
 // See: https://opennext.js.org/cloudflare
 
 interface SettingsBody {
-  businessId: string;
   ai_enabled?: number;
   brand_tone?: string;
   greeting_template?: string;
@@ -20,17 +21,18 @@ interface SettingsBody {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as SettingsBody;
-    const { businessId, ...config } = body;
-
-    if (!businessId) {
+    const { user } = await withAuth();
+    if (!user) {
       return NextResponse.json(
-        { error: "Business ID is required" },
-        { status: 400 }
+        { error: "Unauthorized" },
+        { status: 401 }
       );
     }
 
     const db = await getDB();
+    const businessId = await requireBusinessId(db, user.id);
+
+    const config = await request.json() as SettingsBody;
 
     // Build the config object with only the fields that were provided
     const updateConfig: Record<string, string | number | null> = {};

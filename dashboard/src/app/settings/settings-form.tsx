@@ -21,12 +21,11 @@ const GREETING_MAX_LENGTH = 300;
 const AFTER_HOURS_MAX_LENGTH = 500;
 
 interface SettingsFormProps {
-  businessId: string;
   section: Section;
   initialData: Record<string, string | number>;
 }
 
-export function SettingsForm({ businessId, section, initialData }: SettingsFormProps) {
+export function SettingsForm({ section, initialData }: SettingsFormProps) {
   const [data, setData] = useState(initialData);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -44,7 +43,7 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
       const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessId, ...data }),
+        body: JSON.stringify(data),
       });
 
       if (response.ok) {
@@ -68,7 +67,7 @@ export function SettingsForm({ businessId, section, initialData }: SettingsFormP
         const response = await fetch("/api/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ businessId, ai_enabled: newValue }),
+          body: JSON.stringify({ ai_enabled: newValue }),
         });
 
         if (response.ok) {

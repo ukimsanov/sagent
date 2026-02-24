@@ -1,5 +1,5 @@
 import { getDB, getCategories } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessForPage } from "@/lib/auth-utils";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
@@ -17,7 +17,7 @@ export default async function NewProductPage() {
   }
 
   const db = await getDB();
-  const businessId = await getUserBusinessId(db, user.id);
+  const businessId = await requireBusinessForPage(db, user.id);
   const categories = await getCategories(db, businessId);
 
   return (

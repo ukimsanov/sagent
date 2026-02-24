@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDB, getMessageEvents } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessForPage } from "@/lib/auth-utils";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { ConversationsTable } from "@/components/dashboard/conversations-table";
 import { SearchInput } from "@/components/dashboard/search-input";
@@ -50,7 +50,7 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
   const offset = (page - 1) * ITEMS_PER_PAGE;
 
   const db = await getDB();
-  const businessId = await getUserBusinessId(db, user.id);
+  const businessId = await requireBusinessForPage(db, user.id);
   const { events, total } = await getMessageEvents(db, businessId, {
     limit: ITEMS_PER_PAGE,
     offset,

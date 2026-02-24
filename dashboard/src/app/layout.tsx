@@ -9,6 +9,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { UserMenu } from "@/components/user-menu";
+import { getDB, getBusinessById } from "@/lib/db";
+import { getUserBusinessId } from "@/lib/auth-utils";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -35,6 +37,24 @@ export default async function RootLayout({
 }>) {
 	const { user } = await withAuth();
 
+	// Resolve business for authenticated users
+	let businessName: string | null = null;
+	let hasBusiness = false;
+
+	if (user) {
+		try {
+			const db = await getDB();
+			const businessId = await getUserBusinessId(db, user.id);
+			if (businessId) {
+				hasBusiness = true;
+				const business = await getBusinessById(db, businessId);
+				businessName = business?.name || null;
+			}
+		} catch {
+			// DB might not be available during build — gracefully degrade
+		}
+	}
+
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
@@ -48,10 +68,10 @@ export default async function RootLayout({
 						enableSystem
 						disableTransitionOnChange
 					>
-						{user ? (
-							// Authenticated: Show dashboard with sidebar
+						{user && hasBusiness ? (
+							// Authenticated with business: Show dashboard with sidebar
 							<SidebarProvider>
-								<AppSidebar user={user} />
+								<AppSidebar user={user} businessName={businessName} />
 								<SidebarInset className="flex flex-col h-screen overflow-hidden">
 									<header className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 py-3">
 										<div className="flex items-center gap-2 h-9">
@@ -69,7 +89,7 @@ export default async function RootLayout({
 								</SidebarInset>
 							</SidebarProvider>
 						) : (
-							// Not authenticated: Full-width layout for landing page
+							// Not authenticated or no business: Full-width layout
 							<main className="min-h-screen">
 								{children}
 							</main>

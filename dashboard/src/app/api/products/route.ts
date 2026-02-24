@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDB, getProducts, createProduct, getCategories } from "@/lib/db";
-import { getUserBusinessId } from "@/lib/auth-utils";
+import { requireBusinessId } from "@/lib/auth-utils";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 
 /**
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     }
 
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "50", 10);
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = await getDB();
-    const businessId = await getUserBusinessId(db, user.id);
+    const businessId = await requireBusinessId(db, user.id);
 
     const body = await request.json() as {
       name?: string;
