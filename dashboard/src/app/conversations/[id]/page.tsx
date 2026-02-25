@@ -12,6 +12,10 @@ import {
   User,
   TrendingUp,
   Flag,
+  Brain,
+  Tag,
+  StickyNote,
+  ShieldX,
 } from "lucide-react";
 import Link from "next/link";
 import { getDB, getConversationEvents, getLeadWithSummary } from "@/lib/db";
@@ -122,6 +126,27 @@ export default async function ConversationDetailPage({
   } catch {
     interests = [];
   }
+
+  // Parse objections from summary
+  let objections: string[] = [];
+  try {
+    objections = summary?.objections ? JSON.parse(summary.objections) : [];
+    if (!Array.isArray(objections)) objections = [];
+  } catch {
+    objections = [];
+  }
+
+  // Parse lead tags
+  let tags: string[] = [];
+  try {
+    tags = lead.tags ? JSON.parse(lead.tags) : [];
+    if (!Array.isArray(tags)) tags = [];
+  } catch {
+    tags = [];
+  }
+
+  // Get lead notes
+  const leadNotes = lead.notes;
 
   // Group events into messages (user + agent pairs)
   const messages = events.map((event) => ({
@@ -286,6 +311,40 @@ export default async function ConversationDetailPage({
                   </div>
                 </>
               )}
+              {objections.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <ShieldX className="h-3 w-3" /> Objections
+                    </span>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {objections.map((obj) => (
+                        <Badge key={obj} variant="outline" className="text-xs border-red-200 text-red-700 bg-red-50 dark:border-red-800 dark:text-red-400 dark:bg-red-900/20">
+                          {obj}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+              {tags.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Tag className="h-3 w-3" /> Tags
+                    </span>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {tags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
               {summary?.next_steps && (
                 <>
                   <Separator />
@@ -295,8 +354,34 @@ export default async function ConversationDetailPage({
                   </div>
                 </>
               )}
+              {leadNotes && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <StickyNote className="h-3 w-3" /> Notes
+                    </span>
+                    <p className="text-sm mt-1 text-muted-foreground italic">{leadNotes}</p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
+
+          {/* AI Summary */}
+          {summary?.summary && (
+            <Card>
+              <CardHeader className="py-1.5">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Brain className="h-4 w-4" />
+                  AI Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground leading-relaxed">{summary.summary}</p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Event Timeline */}
           <Card>

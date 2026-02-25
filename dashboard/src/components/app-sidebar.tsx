@@ -22,6 +22,9 @@ import {
   Users,
   Settings,
   Package,
+  AlertTriangle,
+  Calendar,
+  Ticket,
 } from "lucide-react";
 import type { AuthUser } from "@/types/auth";
 
@@ -50,6 +53,21 @@ const navItems = [
     title: "Leads",
     href: "/leads",
     icon: Users,
+  },
+  {
+    title: "Escalations",
+    href: "/escalations",
+    icon: AlertTriangle,
+  },
+  {
+    title: "Appointments",
+    href: "/appointments",
+    icon: Calendar,
+  },
+  {
+    title: "Promo Codes",
+    href: "/promos",
+    icon: Ticket,
   },
 ];
 

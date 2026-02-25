@@ -38,9 +38,11 @@ export interface Lead {
   email: string | null;
   score: number;
   status: 'new' | 'engaged' | 'warm' | 'hot' | 'converted' | 'lost';
+  tags: string | null;
   first_contact: number;
   last_contact: number;
   message_count: number;
+  notes: string | null;
 }
 
 export interface ConversationSummary {
@@ -891,6 +893,449 @@ export async function getPeakHoursData(
     .all<PeakHourPoint>();
 
   return result.results || [];
+}
+
+// ============================================================================
+// Escalation / Human Flag Types & Queries
+// ============================================================================
+
+export interface HumanFlag {
+  id: string;
+  lead_id: string;
+  urgency: 'low' | 'medium' | 'high';
+  reason: string;
+  resolved: number;
+  created_at: number;
+  resolved_at: number | null;
+}
+
+export interface EscalationRow extends HumanFlag {
+  lead_name: string | null;
+  whatsapp_number: string;
+  lead_score: number;
+}
+
+/**
+ * Get escalations for a business (joined through leads table)
+ */
+export async function getEscalations(
+  db: D1Database,
+  businessId: string,
+  options: {
+    status?: 'open' | 'resolved' | 'all';
+    urgency?: 'low' | 'medium' | 'high';
+  } = {}
+): Promise<EscalationRow[]> {
+  const { status = 'all', urgency } = options;
+
+  const conditions: string[] = ['l.business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (status === 'open') {
+    conditions.push('hf.resolved = 0');
+  } else if (status === 'resolved') {
+    conditions.push('hf.resolved = 1');
+  }
+
+  if (urgency) {
+    conditions.push('hf.urgency = ?');
+    params.push(urgency);
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  const result = await db
+    .prepare(`
+      SELECT hf.*, l.name as lead_name, l.whatsapp_number, l.score as lead_score
+      FROM human_flags hf
+      LEFT JOIN leads l ON hf.lead_id = l.id
+      WHERE ${whereClause}
+      ORDER BY
+        CASE hf.urgency WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+        hf.created_at DESC
+    `)
+    .bind(...params)
+    .all<EscalationRow>();
+
+  return result.results || [];
+}
+
+/**
+ * Get escalation KPI stats
+ */
+export async function getEscalationStats(
+  db: D1Database,
+  businessId: string
+) {
+  const result = await db
+    .prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN hf.resolved = 0 THEN 1 ELSE 0 END) as open_count,
+        SUM(CASE WHEN hf.urgency = 'high' AND hf.resolved = 0 THEN 1 ELSE 0 END) as high_urgency,
+        SUM(CASE WHEN hf.resolved = 1 AND DATE(hf.resolved_at, 'unixepoch') = DATE('now') THEN 1 ELSE 0 END) as resolved_today
+      FROM human_flags hf
+      LEFT JOIN leads l ON hf.lead_id = l.id
+      WHERE l.business_id = ?
+    `)
+    .bind(businessId)
+    .first<{ total: number; open_count: number; high_urgency: number; resolved_today: number }>();
+
+  return {
+    total: result?.total || 0,
+    openCount: result?.open_count || 0,
+    highUrgency: result?.high_urgency || 0,
+    resolvedToday: result?.resolved_today || 0,
+  };
+}
+
+/**
+ * Resolve an escalation
+ */
+export async function resolveEscalation(
+  db: D1Database,
+  escalationId: string
+): Promise<void> {
+  await db
+    .prepare('UPDATE human_flags SET resolved = 1, resolved_at = unixepoch() WHERE id = ?')
+    .bind(escalationId)
+    .run();
+}
+
+/**
+ * Get escalation by ID (for ownership verification)
+ */
+export async function getEscalationById(
+  db: D1Database,
+  escalationId: string
+): Promise<EscalationRow | null> {
+  const result = await db
+    .prepare(`
+      SELECT hf.*, l.name as lead_name, l.whatsapp_number, l.score as lead_score
+      FROM human_flags hf
+      LEFT JOIN leads l ON hf.lead_id = l.id
+      WHERE hf.id = ?
+    `)
+    .bind(escalationId)
+    .first<EscalationRow>();
+
+  return result || null;
+}
+
+// ============================================================================
+// Appointment & Callback Queries
+// ============================================================================
+
+export interface Appointment {
+  id: string;
+  lead_id: string;
+  business_id: string;
+  requested_date: string | null;
+  requested_time: string | null;
+  notes: string | null;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  created_at: number;
+}
+
+export interface AppointmentRow extends Appointment {
+  lead_name: string | null;
+  whatsapp_number: string;
+}
+
+export interface CallbackRequest {
+  id: string;
+  lead_id: string;
+  business_id: string;
+  preferred_time: string | null;
+  reason: string | null;
+  status: 'pending' | 'completed';
+  created_at: number;
+}
+
+export interface CallbackRow extends CallbackRequest {
+  lead_name: string | null;
+  whatsapp_number: string;
+}
+
+/**
+ * Get appointments for a business
+ */
+export async function getAppointments(
+  db: D1Database,
+  businessId: string,
+  options: { status?: string } = {}
+): Promise<AppointmentRow[]> {
+  const conditions: string[] = ['a.business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (options.status) {
+    conditions.push('a.status = ?');
+    params.push(options.status);
+  }
+
+  const result = await db
+    .prepare(`
+      SELECT a.*, l.name as lead_name, l.whatsapp_number
+      FROM appointments a
+      LEFT JOIN leads l ON a.lead_id = l.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY a.created_at DESC
+    `)
+    .bind(...params)
+    .all<AppointmentRow>();
+
+  return result.results || [];
+}
+
+/**
+ * Get callback requests for a business
+ */
+export async function getCallbackRequests(
+  db: D1Database,
+  businessId: string,
+  options: { status?: string } = {}
+): Promise<CallbackRow[]> {
+  const conditions: string[] = ['cr.business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (options.status) {
+    conditions.push('cr.status = ?');
+    params.push(options.status);
+  }
+
+  const result = await db
+    .prepare(`
+      SELECT cr.*, l.name as lead_name, l.whatsapp_number
+      FROM callback_requests cr
+      LEFT JOIN leads l ON cr.lead_id = l.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY cr.created_at DESC
+    `)
+    .bind(...params)
+    .all<CallbackRow>();
+
+  return result.results || [];
+}
+
+/**
+ * Update appointment status
+ */
+export async function updateAppointmentStatus(
+  db: D1Database,
+  appointmentId: string,
+  status: 'confirmed' | 'cancelled'
+): Promise<void> {
+  await db
+    .prepare('UPDATE appointments SET status = ? WHERE id = ?')
+    .bind(status, appointmentId)
+    .run();
+}
+
+/**
+ * Update callback request status
+ */
+export async function updateCallbackStatus(
+  db: D1Database,
+  callbackId: string,
+  status: 'completed'
+): Promise<void> {
+  await db
+    .prepare('UPDATE callback_requests SET status = ? WHERE id = ?')
+    .bind(status, callbackId)
+    .run();
+}
+
+// ============================================================================
+// Promo Code Queries
+// ============================================================================
+
+export interface PromoCode {
+  id: string;
+  business_id: string;
+  code: string;
+  discount_percent: number | null;
+  discount_amount: number | null;
+  used_by_lead_id: string | null;
+  expires_at: number | null;
+  created_at: number;
+}
+
+export interface PromoCodeRow extends PromoCode {
+  used_by_name: string | null;
+}
+
+/**
+ * Get promo codes for a business
+ */
+export async function getPromoCodes(
+  db: D1Database,
+  businessId: string
+): Promise<PromoCodeRow[]> {
+  const result = await db
+    .prepare(`
+      SELECT pc.*, l.name as used_by_name
+      FROM promo_codes pc
+      LEFT JOIN leads l ON pc.used_by_lead_id = l.id
+      WHERE pc.business_id = ?
+      ORDER BY pc.created_at DESC
+    `)
+    .bind(businessId)
+    .all<PromoCodeRow>();
+
+  return result.results || [];
+}
+
+/**
+ * Get promo code stats
+ */
+export async function getPromoStats(
+  db: D1Database,
+  businessId: string
+) {
+  const result = await db
+    .prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN used_by_lead_id IS NOT NULL THEN 1 ELSE 0 END) as used_count,
+        SUM(CASE WHEN used_by_lead_id IS NULL AND (expires_at IS NULL OR expires_at > unixepoch()) THEN 1 ELSE 0 END) as active_count
+      FROM promo_codes
+      WHERE business_id = ?
+    `)
+    .bind(businessId)
+    .first<{ total: number; used_count: number; active_count: number }>();
+
+  return {
+    total: result?.total || 0,
+    usedCount: result?.used_count || 0,
+    activeCount: result?.active_count || 0,
+  };
+}
+
+/**
+ * Create a new promo code
+ */
+export async function createPromoCode(
+  db: D1Database,
+  promo: {
+    business_id: string;
+    code: string;
+    discount_percent?: number | null;
+    discount_amount?: number | null;
+    expires_at?: number | null;
+  }
+): Promise<void> {
+  const id = `promo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await db
+    .prepare(`
+      INSERT INTO promo_codes (id, business_id, code, discount_percent, discount_amount, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    .bind(
+      id,
+      promo.business_id,
+      promo.code,
+      promo.discount_percent ?? null,
+      promo.discount_amount ?? null,
+      promo.expires_at ?? null
+    )
+    .run();
+}
+
+/**
+ * Deactivate a promo code (set expires_at to now)
+ */
+export async function deactivatePromoCode(
+  db: D1Database,
+  promoId: string
+): Promise<void> {
+  await db
+    .prepare('UPDATE promo_codes SET expires_at = unixepoch() WHERE id = ?')
+    .bind(promoId)
+    .run();
+}
+
+// ============================================================================
+// Conversations Grouped by Lead
+// ============================================================================
+
+export interface ConversationThread {
+  lead_id: string;
+  lead_name: string | null;
+  whatsapp_number: string;
+  lead_score: number;
+  lead_status: string;
+  message_count: number;
+  last_activity: number;
+  last_message: string | null;
+  flag_count: number;
+}
+
+/**
+ * Get conversations grouped by lead
+ */
+export async function getConversationThreads(
+  db: D1Database,
+  businessId: string,
+  options: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    hasEscalation?: boolean;
+  } = {}
+): Promise<{ threads: ConversationThread[]; total: number }> {
+  const { limit = 50, offset = 0, search, hasEscalation } = options;
+
+  const conditions: string[] = ['l.business_id = ?'];
+  const params: (string | number)[] = [businessId];
+
+  if (search) {
+    conditions.push('(l.name LIKE ? OR l.whatsapp_number LIKE ?)');
+    const pattern = `%${search}%`;
+    params.push(pattern, pattern);
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  const havingClause = hasEscalation ? 'HAVING flag_count > 0' : '';
+
+  const countResult = await db
+    .prepare(`
+      SELECT COUNT(*) as count FROM (
+        SELECT l.id, SUM(CASE WHEN me.flagged_for_human = 1 THEN 1 ELSE 0 END) as flag_count
+        FROM leads l
+        LEFT JOIN message_events me ON me.lead_id = l.id AND me.business_id = l.business_id
+        WHERE ${whereClause}
+        GROUP BY l.id
+        ${havingClause}
+      )
+    `)
+    .bind(...params)
+    .first<{ count: number }>();
+
+  const result = await db
+    .prepare(`
+      SELECT
+        l.id as lead_id, l.name as lead_name, l.whatsapp_number,
+        l.score as lead_score, l.status as lead_status,
+        COUNT(me.id) as message_count,
+        MAX(me.timestamp) as last_activity,
+        (SELECT me2.user_message FROM message_events me2 WHERE me2.lead_id = l.id ORDER BY me2.timestamp DESC LIMIT 1) as last_message,
+        SUM(CASE WHEN me.flagged_for_human = 1 THEN 1 ELSE 0 END) as flag_count
+      FROM leads l
+      LEFT JOIN message_events me ON me.lead_id = l.id AND me.business_id = l.business_id
+      WHERE ${whereClause}
+      GROUP BY l.id
+      ${havingClause}
+      ORDER BY last_activity DESC
+      LIMIT ? OFFSET ?
+    `)
+    .bind(...params, limit, offset)
+    .all<ConversationThread>();
+
+  return {
+    threads: result.results || [],
+    total: countResult?.count || 0,
+  };
 }
 
 export interface AnalyticsSummaryWithComparison {

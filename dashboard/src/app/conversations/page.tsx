@@ -1,42 +1,27 @@
 import { Suspense } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getDB, getMessageEvents } from "@/lib/db";
+import { Badge } from "@/components/ui/badge";
+import { getDB, getConversationThreads } from "@/lib/db";
 import { requireBusinessForPage } from "@/lib/auth-utils";
 import { BlurFade } from "@/components/ui/blur-fade";
-import { ConversationsTable } from "@/components/dashboard/conversations-table";
+import { ConversationThreadsTable } from "@/components/dashboard/conversation-threads-table";
 import { SearchInput } from "@/components/dashboard/search-input";
-import { FilterButtons } from "@/components/dashboard/filter-buttons";
 import { PaginationControls } from "@/components/dashboard/pagination-controls";
 import { Skeleton } from "@/components/ui/skeleton";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
-
-const ACTION_OPTIONS = [
-  { value: "show_products", label: "Show Products" },
-  { value: "ask_clarification", label: "Ask Clarification" },
-  { value: "answer_question", label: "Answer Question" },
-  { value: "empathize", label: "Empathize" },
-  { value: "greet", label: "Greet" },
-  { value: "thank", label: "Thank" },
-  { value: "handoff", label: "Handoff" },
-];
-
-const STATUS_OPTIONS = [
-  { value: "flagged", label: "Flagged Only" },
-  { value: "active", label: "Active Only" },
-];
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-const ITEMS_PER_PAGE = 15;
+const ITEMS_PER_PAGE = 20;
 
 export default async function ConversationsPage({ searchParams }: PageProps) {
-  // Check authentication
   const { user } = await withAuth();
   if (!user) {
     redirect("/auth/login");
@@ -44,19 +29,17 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const search = typeof params.q === "string" ? params.q : undefined;
-  const action = typeof params.action === "string" ? params.action : undefined;
-  const status = typeof params.status === "string" ? params.status : undefined;
+  const escalation = params.escalation === "true";
   const page = typeof params.page === "string" ? Math.max(1, parseInt(params.page)) : 1;
   const offset = (page - 1) * ITEMS_PER_PAGE;
 
   const db = await getDB();
   const businessId = await requireBusinessForPage(db, user.id);
-  const { events, total } = await getMessageEvents(db, businessId, {
+  const { threads, total } = await getConversationThreads(db, businessId, {
     limit: ITEMS_PER_PAGE,
     offset,
     search,
-    action,
-    flagged: status === "flagged" ? true : status === "active" ? false : undefined,
+    hasEscalation: escalation || undefined,
   });
 
   const totalPages = Math.ceil(total / ITEMS_PER_PAGE);
@@ -69,7 +52,7 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Conversations</h1>
             <p className="text-muted-foreground">
-              View and manage all customer conversations ({total} total)
+              All customer conversations grouped by lead ({total} threads)
             </p>
           </div>
         </div>
@@ -81,22 +64,16 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
           <CardContent className="py-4">
             <div className="flex gap-4 items-center flex-wrap">
               <Suspense fallback={<Skeleton className="h-9 w-64" />}>
-                <SearchInput placeholder="Search by phone or message..." />
+                <SearchInput placeholder="Search by name or phone..." />
               </Suspense>
-              <Suspense fallback={<Skeleton className="h-9 w-24" />}>
-                <FilterButtons
-                  paramName="action"
-                  options={ACTION_OPTIONS}
-                  label="Action"
-                />
-              </Suspense>
-              <Suspense fallback={<Skeleton className="h-9 w-24" />}>
-                <FilterButtons
-                  paramName="status"
-                  options={STATUS_OPTIONS}
-                  label="Status"
-                />
-              </Suspense>
+              <Link href={escalation ? "/conversations" : "/conversations?escalation=true"}>
+                <Badge
+                  variant={escalation ? "default" : "outline"}
+                  className="cursor-pointer"
+                >
+                  Has escalation
+                </Badge>
+              </Link>
             </div>
           </CardContent>
         </Card>
@@ -106,7 +83,7 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
       <BlurFade delay={0.2}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Recent Conversations</CardTitle>
+            <CardTitle className="text-base">Conversation Threads</CardTitle>
             {totalPages > 1 && (
               <span className="text-sm text-muted-foreground">
                 Page {page} of {totalPages}
@@ -114,7 +91,7 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
             )}
           </CardHeader>
           <CardContent className="space-y-4">
-            <ConversationsTable events={events} />
+            <ConversationThreadsTable threads={threads} />
             <Suspense fallback={null}>
               <PaginationControls currentPage={page} totalPages={totalPages} />
             </Suspense>
