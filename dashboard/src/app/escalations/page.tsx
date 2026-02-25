@@ -15,6 +15,7 @@ import { redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { StatsCard } from "@/components/dashboard/stats-card";
 import { ResolveButton } from "@/components/escalations/resolve-button";
+import { ExportButton } from "@/components/dashboard/export-button";
 
 export const dynamic = "force-dynamic";
 
@@ -58,11 +59,14 @@ export default async function EscalationsPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Escalation Queue</h1>
-        <p className="text-muted-foreground">
-          Conversations flagged for human attention
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Escalation Queue</h1>
+          <p className="text-muted-foreground">
+            Conversations flagged for human attention
+          </p>
+        </div>
+        <ExportButton type="escalations" />
       </div>
 
       {/* KPI Cards */}

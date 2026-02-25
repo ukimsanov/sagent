@@ -172,6 +172,9 @@ CREATE TABLE IF NOT EXISTS message_events (
   -- Performance
   processing_time_ms INTEGER,
 
+  -- Sentiment tracking
+  sentiment TEXT,  -- 'positive', 'neutral', 'negative', 'frustrated'
+
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
 );

@@ -9,6 +9,7 @@ import { LeadsTable } from "@/components/dashboard/leads-table";
 import { SearchInput } from "@/components/dashboard/search-input";
 import { FilterButtons } from "@/components/dashboard/filter-buttons";
 import { PaginationControls } from "@/components/dashboard/pagination-controls";
+import { ExportButton } from "@/components/dashboard/export-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
@@ -74,6 +75,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
               Manage and track your customer leads ({total} total)
             </p>
           </div>
+          <ExportButton type="leads" />
         </div>
       </BlurFade>
 

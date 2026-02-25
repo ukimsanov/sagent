@@ -1005,6 +1005,7 @@ export interface MessageEventInput {
   flagged_for_human: number;
   clarification_count: number;
   processing_time_ms: number | null;
+  sentiment: string | null;
 }
 
 /**
@@ -1019,9 +1020,10 @@ export async function insertMessageEvent(
       INSERT INTO message_events (
         id, business_id, lead_id, timestamp, action, intent_type,
         user_message, agent_response, search_query, products_shown,
-        flagged_for_human, clarification_count, processing_time_ms
+        flagged_for_human, clarification_count, processing_time_ms,
+        sentiment
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .bind(
       event.id,
@@ -1036,7 +1038,8 @@ export async function insertMessageEvent(
       event.products_shown ? JSON.stringify(event.products_shown) : null,
       event.flagged_for_human,
       event.clarification_count,
-      event.processing_time_ms
+      event.processing_time_ms,
+      event.sentiment
     )
     .run();
 }

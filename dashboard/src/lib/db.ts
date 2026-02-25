@@ -28,6 +28,7 @@ export interface MessageEvent {
   flagged_for_human: number;
   clarification_count: number;
   processing_time_ms: number | null;
+  sentiment: string | null;
 }
 
 export interface Lead {
@@ -1410,4 +1411,172 @@ export async function getAnalyticsSummaryWithComparison(
       resolutionRate: pctChange(currentResolutionRate, previousResolutionRate),
     },
   };
+}
+
+// ============================================================================
+// Sentiment Queries
+// ============================================================================
+
+/**
+ * Get sentiment breakdown for a business in a time range
+ */
+export async function getSentimentBreakdown(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+) {
+  const result = await db
+    .prepare(`
+      SELECT sentiment, COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND sentiment IS NOT NULL
+      GROUP BY sentiment
+      ORDER BY count DESC
+    `)
+    .bind(businessId, startTime, endTime)
+    .all<{ sentiment: string; count: number }>();
+
+  return result.results || [];
+}
+
+// ============================================================================
+// Insights Data Queries
+// ============================================================================
+
+/**
+ * Get data needed for rule-based insights generation
+ */
+export async function getInsightsData(
+  db: D1Database,
+  businessId: string,
+  startTime: number,
+  endTime: number
+) {
+  const periodLength = endTime - startTime;
+  const prevStart = startTime - periodLength;
+
+  const [
+    zeroResultSearches,
+    handoffReasons,
+    peakHour,
+    hotLeadsNoFollowUp,
+    currentHandoffRate,
+    previousHandoffRate,
+  ] = await Promise.all([
+    db.prepare(`
+      SELECT search_query, COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND search_query IS NOT NULL AND search_query != ''
+        AND (products_shown IS NULL OR products_shown = '[]' OR products_shown = 'null')
+      GROUP BY search_query ORDER BY count DESC LIMIT 5
+    `).bind(businessId, startTime, endTime)
+      .all<{ search_query: string; count: number }>(),
+
+    db.prepare(`
+      SELECT intent_type, COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+        AND (action = 'handoff' OR flagged_for_human = 1)
+        AND intent_type IS NOT NULL
+      GROUP BY intent_type ORDER BY count DESC LIMIT 3
+    `).bind(businessId, startTime, endTime)
+      .all<{ intent_type: string; count: number }>(),
+
+    db.prepare(`
+      SELECT CAST(strftime('%H', timestamp / 1000, 'unixepoch') AS INTEGER) as hour,
+             COUNT(*) as count
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+      GROUP BY hour ORDER BY count DESC LIMIT 1
+    `).bind(businessId, startTime, endTime)
+      .first<{ hour: number; count: number }>(),
+
+    db.prepare(`
+      SELECT id, name, whatsapp_number, score, last_contact
+      FROM leads
+      WHERE business_id = ? AND status = 'hot'
+        AND last_contact < ?
+      ORDER BY score DESC LIMIT 5
+    `).bind(businessId, Math.floor(Date.now() / 1000) - 3 * 86400)
+      .all<{ id: string; name: string | null; whatsapp_number: string; score: number; last_contact: number }>(),
+
+    db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN action = 'handoff' OR flagged_for_human = 1 THEN 1 ELSE 0 END) as handoffs
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+    `).bind(businessId, startTime, endTime)
+      .first<{ total: number; handoffs: number }>(),
+
+    db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN action = 'handoff' OR flagged_for_human = 1 THEN 1 ELSE 0 END) as handoffs
+      FROM message_events
+      WHERE business_id = ? AND timestamp >= ? AND timestamp <= ?
+    `).bind(businessId, prevStart, startTime)
+      .first<{ total: number; handoffs: number }>(),
+  ]);
+
+  return {
+    zeroResultSearches: zeroResultSearches.results || [],
+    handoffReasons: handoffReasons.results || [],
+    peakHour,
+    hotLeadsNoFollowUp: hotLeadsNoFollowUp.results || [],
+    currentHandoffRate,
+    previousHandoffRate,
+  };
+}
+
+// ============================================================================
+// Lead-Specific Queries (for profile page)
+// ============================================================================
+
+/**
+ * Get escalations for a specific lead
+ */
+export async function getLeadEscalations(
+  db: D1Database,
+  leadId: string
+): Promise<HumanFlag[]> {
+  const result = await db
+    .prepare('SELECT * FROM human_flags WHERE lead_id = ? ORDER BY created_at DESC')
+    .bind(leadId)
+    .all<HumanFlag>();
+
+  return result.results || [];
+}
+
+/**
+ * Get appointments for a specific lead
+ */
+export async function getLeadAppointments(
+  db: D1Database,
+  leadId: string
+): Promise<Appointment[]> {
+  const result = await db
+    .prepare('SELECT * FROM appointments WHERE lead_id = ? ORDER BY created_at DESC')
+    .bind(leadId)
+    .all<Appointment>();
+
+  return result.results || [];
+}
+
+/**
+ * Get callback requests for a specific lead
+ */
+export async function getLeadCallbacks(
+  db: D1Database,
+  leadId: string
+): Promise<CallbackRequest[]> {
+  const result = await db
+    .prepare('SELECT * FROM callback_requests WHERE lead_id = ? ORDER BY created_at DESC')
+    .bind(leadId)
+    .all<CallbackRequest>();
+
+  return result.results || [];
 }

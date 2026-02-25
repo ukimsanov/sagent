@@ -10,6 +10,8 @@ import {
   getTopSearchQueries,
   getTimeSeriesData,
   getPeakHoursData,
+  getSentimentBreakdown,
+  getInsightsData,
   ResponseAction,
 } from "@/lib/db";
 import { requireBusinessForPage } from "@/lib/auth-utils";
@@ -21,6 +23,8 @@ import { MessagesChart } from "@/components/dashboard/messages-chart";
 import { IntentBarChart } from "@/components/dashboard/intent-bar-chart";
 import { PeakHoursHeatmap } from "@/components/dashboard/peak-hours-heatmap";
 import { SearchBarChart } from "@/components/dashboard/search-bar-chart";
+import { SentimentChart } from "@/components/dashboard/sentiment-chart";
+import { InsightsPanel, Insight } from "@/components/dashboard/insights-panel";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { parseRange, rangeToMs, rangeLabel } from "@/lib/date-range";
 import { BlurFade } from "@/components/ui/blur-fade";
@@ -71,6 +75,8 @@ export default async function DashboardPage({
     topSearches,
     timeSeries,
     peakHours,
+    sentimentData,
+    insightsData,
   ] = await Promise.all([
     getAnalyticsSummaryWithComparison(db, businessId, startTime, now),
     getMessageEvents(db, businessId, { limit: 10 }),
@@ -79,6 +85,8 @@ export default async function DashboardPage({
     getTopSearchQueries(db, businessId, startTime, now),
     getTimeSeriesData(db, businessId, startTime, now),
     getPeakHoursData(db, businessId, startTime, now),
+    getSentimentBreakdown(db, businessId, startTime, now),
+    getInsightsData(db, businessId, startTime, now),
   ]);
 
   const totalLeads = Object.values(leadFunnel).reduce((a, b) => a + b, 0);
@@ -104,6 +112,57 @@ export default async function DashboardPage({
       : 0;
 
   const periodLabel = rangeLabel(range);
+
+  // Generate rule-based insights
+  const insights: Insight[] = [];
+
+  // Zero-result searches
+  for (const s of insightsData.zeroResultSearches.slice(0, 3)) {
+    insights.push({
+      type: "warning",
+      icon: "search",
+      message: `"${s.search_query}" was searched ${s.count} time${s.count > 1 ? "s" : ""} with no results`,
+    });
+  }
+
+  // Handoff rate change
+  if (insightsData.currentHandoffRate && insightsData.previousHandoffRate) {
+    const currRate = insightsData.currentHandoffRate.total > 0
+      ? Math.round((insightsData.currentHandoffRate.handoffs / insightsData.currentHandoffRate.total) * 100)
+      : 0;
+    const prevRate = insightsData.previousHandoffRate.total > 0
+      ? Math.round((insightsData.previousHandoffRate.handoffs / insightsData.previousHandoffRate.total) * 100)
+      : 0;
+    if (currRate > prevRate && prevRate > 0) {
+      const topReason = insightsData.handoffReasons[0];
+      insights.push({
+        type: "warning",
+        icon: "trending",
+        message: `Handoff rate increased from ${prevRate}% to ${currRate}%${topReason ? `. Top reason: ${topReason.intent_type}` : ""}`,
+      });
+    }
+  }
+
+  // Busiest hour
+  if (insightsData.peakHour && insightsData.peakHour.count > 0) {
+    const h = insightsData.peakHour.hour;
+    const label = h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
+    insights.push({
+      type: "info",
+      icon: "clock",
+      message: `Your busiest hour is ${label} with ${insightsData.peakHour.count} messages`,
+    });
+  }
+
+  // Hot leads without follow-up
+  for (const lead of insightsData.hotLeadsNoFollowUp.slice(0, 2)) {
+    const daysAgo = Math.floor((Date.now() / 1000 - lead.last_contact) / 86400);
+    insights.push({
+      type: "action",
+      icon: "flame",
+      message: `${lead.name || "+" + lead.whatsapp_number} (score: ${lead.score}) has been hot for ${daysAgo} days without follow-up`,
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -162,18 +221,28 @@ export default async function DashboardPage({
         />
       </div>
 
+      {/* Insights Panel (only renders when insights exist) */}
+      {insights.length > 0 && (
+        <BlurFade delay={0.23}>
+          <InsightsPanel insights={insights} />
+        </BlurFade>
+      )}
+
       {/* Main chart: Messages over time */}
       <BlurFade delay={0.25}>
         <MessagesChart data={timeSeries} />
       </BlurFade>
 
-      {/* Side-by-side: Intents + Peak Hours */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Side-by-side: Intents + Peak Hours + Sentiment */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <BlurFade delay={0.3}>
           <IntentBarChart data={intentBreakdown} />
         </BlurFade>
         <BlurFade delay={0.35}>
           <PeakHoursHeatmap data={peakHours} />
+        </BlurFade>
+        <BlurFade delay={0.4}>
+          <SentimentChart data={sentimentData} />
         </BlurFade>
       </div>
 

@@ -58,6 +58,7 @@ export interface HandlerResponse {
   searchQuery?: string;
   productsShown?: string[];
   clarificationCount?: number;
+  sentiment?: string;
   // Products with images to send
   imagesToSend?: Array<{ url: string; caption?: string }>;
   // Lead tracking actions executed
@@ -459,6 +460,7 @@ async function processLLMDecision(
     intentType: finalDecision.conversation_action,
     searchQuery: searchQuery || undefined,
     productsShown: finalDecision.product_ids ?? undefined,
+    sentiment: finalDecision.sentiment ?? undefined,
     imagesToSend,
     businessActions: finalDecision.business_actions as Array<{ type: string; [key: string]: unknown }>,
     replyType,

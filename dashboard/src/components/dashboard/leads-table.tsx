@@ -180,7 +180,7 @@ export function LeadsTable({ leads }: LeadsTableProps) {
             >
               <TableRow className="cursor-pointer hover:bg-muted/50 transition-colors">
                 <TableCell>
-                  <Link href={`/conversations/${lead.id}`} className="flex items-center gap-3">
+                  <Link href={`/leads/${lead.id}`} className="flex items-center gap-3">
                     <Avatar className="h-8 w-8 transition-transform hover:scale-105">
                       <AvatarFallback className="text-xs bg-primary/10 text-primary">
                         {getInitials(lead.name, lead.whatsapp_number)}
@@ -197,24 +197,24 @@ export function LeadsTable({ leads }: LeadsTableProps) {
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <Link href={`/conversations/${lead.id}`} className="block">
+                  <Link href={`/leads/${lead.id}`} className="block">
                     <div className={`font-bold ${getScoreColor(lead.score)}`}>
                       {lead.score}
                     </div>
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <Link href={`/conversations/${lead.id}`} className="block">
+                  <Link href={`/leads/${lead.id}`} className="block">
                     {getStatusBadge(lead.status)}
                   </Link>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  <Link href={`/conversations/${lead.id}`} className="block">
+                  <Link href={`/leads/${lead.id}`} className="block">
                     {lead.message_count}
                   </Link>
                 </TableCell>
                 <TableCell className="text-muted-foreground text-sm">
-                  <Link href={`/conversations/${lead.id}`} className="block">
+                  <Link href={`/leads/${lead.id}`} className="block">
                     {formatTimeAgo(lead.last_contact)}
                   </Link>
                 </TableCell>

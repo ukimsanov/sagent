@@ -66,6 +66,8 @@ const LLMDecisionSchema = z.object({
   product_ids: z.array(z.string()).nullable(),
   send_images: z.boolean().nullable(),
   reasoning: z.string().nullable(),
+  // Customer sentiment analysis (extracted in same call, zero overhead)
+  sentiment: z.enum(['positive', 'neutral', 'negative', 'frustrated']).nullable(),
   // Interactive message control
   reply_type: z.enum(['text', 'buttons', 'list']).nullable(),
   reply_options: z.array(ReplyOptionSchema).nullable(),

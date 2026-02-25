@@ -996,7 +996,8 @@ async function processMessage(
       products_shown: response.productsShown || null,
       flagged_for_human: response.flaggedForHuman ? 1 : 0,
       clarification_count: response.clarificationCount || 0,
-      processing_time_ms: processingTime
+      processing_time_ms: processingTime,
+      sentiment: response.sentiment || null
     });
   } catch (error) {
     // Don't fail the message handling if analytics logging fails

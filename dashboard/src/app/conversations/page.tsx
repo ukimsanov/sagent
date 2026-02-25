@@ -7,6 +7,7 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { ConversationThreadsTable } from "@/components/dashboard/conversation-threads-table";
 import { SearchInput } from "@/components/dashboard/search-input";
 import { PaginationControls } from "@/components/dashboard/pagination-controls";
+import { ExportButton } from "@/components/dashboard/export-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
@@ -55,6 +56,7 @@ export default async function ConversationsPage({ searchParams }: PageProps) {
               All customer conversations grouped by lead ({total} threads)
             </p>
           </div>
+          <ExportButton type="conversations" />
         </div>
       </BlurFade>
 
