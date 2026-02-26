@@ -26,6 +26,9 @@ import {
   Calendar,
   Ticket,
   HelpCircle,
+  Activity,
+  Forward,
+  HeartPulse,
 } from "lucide-react";
 import type { AuthUser } from "@/types/auth";
 
@@ -74,6 +77,24 @@ const navItems = [
     title: "Auto-FAQs",
     href: "/faqs",
     icon: HelpCircle,
+  },
+];
+
+const opsItems = [
+  {
+    title: "Activity",
+    href: "/activity",
+    icon: Activity,
+  },
+  {
+    title: "Follow-ups",
+    href: "/follow-ups",
+    icon: Forward,
+  },
+  {
+    title: "System Health",
+    href: "/system",
+    icon: HeartPulse,
   },
 ];
 
@@ -133,6 +154,60 @@ export function AppSidebar({ user, businessName }: AppSidebarProps) {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{
                       delay: index * 0.05,
+                      duration: 0.3,
+                      ease: [0.4, 0, 0.2, 1],
+                    }}
+                  >
+                    <SidebarMenuItem className="relative">
+                      {isActive && (
+                        <motion.div
+                          layoutId="activeIndicator"
+                          className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-full"
+                          initial={false}
+                          transition={{
+                            type: "spring",
+                            stiffness: 350,
+                            damping: 30,
+                          }}
+                        />
+                      )}
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        className="transition-all duration-200"
+                      >
+                        <Link href={item.href} className="relative">
+                          <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                          >
+                            <item.icon className="h-4 w-4" />
+                          </motion.div>
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </motion.div>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Operations</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {opsItems.map((item, index) => {
+                const isActive = pathname === item.href;
+                return (
+                  <motion.div
+                    key={item.href}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{
+                      delay: (navItems.length + index) * 0.05,
                       duration: 0.3,
                       ease: [0.4, 0, 0.2, 1],
                     }}

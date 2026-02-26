@@ -22,6 +22,7 @@ import { getDB, getConversationEvents, getLeadWithSummary } from "@/lib/db";
 import { requireBusinessForPage } from "@/lib/auth-utils";
 import { notFound, redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
+import { ReplyBox } from "@/components/conversations/reply-box";
 
 // Force dynamic rendering for D1 database access
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ const actionIcons: Record<string, typeof Package> = {
   greet: MessageSquare,
   thank: MessageSquare,
   handoff: Flag,
+  human_reply: MessageSquare,
 };
 
 function formatTime(timestamp: number) {
@@ -262,6 +264,9 @@ export default async function ConversationDetailPage({
                   No messages in this conversation
                 </p>
               )}
+            </CardContent>
+            <CardContent className="pt-0">
+              <ReplyBox leadId={id} />
             </CardContent>
         </Card>
 

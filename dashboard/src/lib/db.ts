@@ -1696,3 +1696,271 @@ export async function getFaqStats(
   }
   return stats;
 }
+
+// ============================================================================
+// Follow-up Queries (Batch 4)
+// ============================================================================
+
+export interface FollowUp {
+  id: string;
+  business_id: string;
+  lead_id: string;
+  message: string;
+  status: string;
+  created_at: number;
+  sent_at: number | null;
+}
+
+export interface FollowUpRow extends FollowUp {
+  lead_name: string | null;
+  whatsapp_number: string;
+  lead_score: number;
+  lead_last_contact: number;
+}
+
+export async function getFollowUps(
+  db: D1Database,
+  businessId: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<{ followUps: FollowUpRow[]; total: number }> {
+  const { limit = 50, offset = 0 } = options;
+
+  const countResult = await db
+    .prepare("SELECT COUNT(*) as count FROM follow_ups WHERE business_id = ?")
+    .bind(businessId)
+    .first<{ count: number }>();
+
+  const result = await db
+    .prepare(
+      `SELECT fu.*, l.name as lead_name, l.whatsapp_number,
+              l.score as lead_score, l.last_contact as lead_last_contact
+       FROM follow_ups fu
+       LEFT JOIN leads l ON fu.lead_id = l.id
+       WHERE fu.business_id = ?
+       ORDER BY fu.created_at DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(businessId, limit, offset)
+    .all<FollowUpRow>();
+
+  return {
+    followUps: result.results || [],
+    total: countResult?.count || 0,
+  };
+}
+
+export async function getFollowUpStats(
+  db: D1Database,
+  businessId: string,
+): Promise<{
+  totalSent: number;
+  uniqueLeads: number;
+  responded: number;
+  responseRate: number;
+}> {
+  const result = await db
+    .prepare(
+      `SELECT
+         COUNT(*) as total_sent,
+         COUNT(DISTINCT fu.lead_id) as unique_leads,
+         SUM(CASE WHEN l.last_contact > fu.created_at THEN 1 ELSE 0 END) as responded
+       FROM follow_ups fu
+       LEFT JOIN leads l ON fu.lead_id = l.id
+       WHERE fu.business_id = ?`,
+    )
+    .bind(businessId)
+    .first<{ total_sent: number; unique_leads: number; responded: number }>();
+
+  const totalSent = result?.total_sent || 0;
+  const responded = result?.responded || 0;
+
+  return {
+    totalSent,
+    uniqueLeads: result?.unique_leads || 0,
+    responded,
+    responseRate: totalSent > 0 ? Math.round((responded / totalSent) * 100) : 0,
+  };
+}
+
+// ============================================================================
+// Dead Letter Queue Queries (Batch 4 — direct D1 access)
+// ============================================================================
+
+export interface DeadLetterEntry {
+  id: string;
+  operation_type: string;
+  entity_id: string;
+  error_message: string;
+  payload: string | null;
+  created_at: number;
+  retry_count: number;
+  last_retry_at: number | null;
+  resolved_at: number | null;
+  resolved_by: string | null;
+}
+
+export async function getDlqStats(
+  db: D1Database,
+): Promise<{ total: number; unresolved: number; byType: Record<string, number> }> {
+  const [total, unresolved, byType] = await Promise.all([
+    db.prepare("SELECT COUNT(*) as count FROM dead_letter_queue").first<{ count: number }>(),
+    db.prepare("SELECT COUNT(*) as count FROM dead_letter_queue WHERE resolved_at IS NULL").first<{ count: number }>(),
+    db.prepare(
+      `SELECT operation_type, COUNT(*) as count
+       FROM dead_letter_queue WHERE resolved_at IS NULL
+       GROUP BY operation_type`,
+    ).all<{ operation_type: string; count: number }>(),
+  ]);
+
+  const byTypeMap: Record<string, number> = {};
+  for (const row of byType.results || []) {
+    byTypeMap[row.operation_type] = row.count;
+  }
+
+  return {
+    total: total?.count || 0,
+    unresolved: unresolved?.count || 0,
+    byType: byTypeMap,
+  };
+}
+
+export async function getDlqEntries(
+  db: D1Database,
+  options: { type?: string; limit?: number; unresolvedOnly?: boolean } = {},
+): Promise<DeadLetterEntry[]> {
+  const { type, limit = 50, unresolvedOnly = true } = options;
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (unresolvedOnly) conditions.push("resolved_at IS NULL");
+  if (type) {
+    conditions.push("operation_type = ?");
+    params.push(type);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const result = await db
+    .prepare(`SELECT * FROM dead_letter_queue ${where} ORDER BY created_at DESC LIMIT ?`)
+    .bind(...params, Math.min(limit, 100))
+    .all<DeadLetterEntry>();
+
+  return result.results || [];
+}
+
+export async function resolveDlqEntry(
+  db: D1Database,
+  entryId: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE dead_letter_queue SET resolved_at = ?, resolved_by = ? WHERE id = ?")
+    .bind(Date.now(), "manual", entryId)
+    .run();
+}
+
+export async function getSystemMetrics(
+  db: D1Database,
+  businessId: string,
+): Promise<{
+  messagesToday: number;
+  avgResponseTime: number;
+  errorsToday: number;
+  unresolvedErrors: number;
+}> {
+  const oneDayAgo = Date.now() - 86400000;
+
+  const [messagesToday, avgResponseTime, errorRate] = await Promise.all([
+    db
+      .prepare(
+        "SELECT COUNT(*) as count FROM message_events WHERE business_id = ? AND timestamp >= ?",
+      )
+      .bind(businessId, oneDayAgo)
+      .first<{ count: number }>(),
+
+    db
+      .prepare(
+        `SELECT AVG(processing_time_ms) as avg_time FROM message_events
+         WHERE business_id = ? AND timestamp >= ? AND processing_time_ms IS NOT NULL`,
+      )
+      .bind(businessId, oneDayAgo)
+      .first<{ avg_time: number | null }>(),
+
+    db
+      .prepare(
+        `SELECT
+           COUNT(*) as total,
+           SUM(CASE WHEN resolved_at IS NULL THEN 1 ELSE 0 END) as unresolved
+         FROM dead_letter_queue
+         WHERE created_at >= ?`,
+      )
+      .bind(oneDayAgo)
+      .first<{ total: number; unresolved: number }>(),
+  ]);
+
+  return {
+    messagesToday: messagesToday?.count || 0,
+    avgResponseTime: Math.round(avgResponseTime?.avg_time || 0),
+    errorsToday: errorRate?.total || 0,
+    unresolvedErrors: errorRate?.unresolved || 0,
+  };
+}
+
+// ============================================================================
+// Activity Feed Queries (Batch 4)
+// ============================================================================
+
+export interface ActivityEvent {
+  id: string;
+  lead_id: string;
+  lead_name: string | null;
+  whatsapp_number: string;
+  timestamp: number;
+  action: string;
+  intent_type: string | null;
+  user_message: string | null;
+  agent_response: string | null;
+  flagged_for_human: number;
+  sentiment: string | null;
+}
+
+export async function getActivityFeed(
+  db: D1Database,
+  businessId: string,
+  options: { limit?: number; offset?: number; action?: string } = {},
+): Promise<{ events: ActivityEvent[]; total: number }> {
+  const { limit = 50, offset = 0, action } = options;
+
+  const conditions: string[] = ["me.business_id = ?"];
+  const params: (string | number)[] = [businessId];
+
+  if (action) {
+    conditions.push("me.action = ?");
+    params.push(action);
+  }
+
+  const whereClause = conditions.join(" AND ");
+
+  const countResult = await db
+    .prepare(`SELECT COUNT(*) as count FROM message_events me WHERE ${whereClause}`)
+    .bind(...params)
+    .first<{ count: number }>();
+
+  const result = await db
+    .prepare(
+      `SELECT me.id, me.lead_id, l.name as lead_name, l.whatsapp_number,
+              me.timestamp, me.action, me.intent_type,
+              me.user_message, me.agent_response,
+              me.flagged_for_human, me.sentiment
+       FROM message_events me
+       LEFT JOIN leads l ON me.lead_id = l.id
+       WHERE ${whereClause}
+       ORDER BY me.timestamp DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .bind(...params, limit, offset)
+    .all<ActivityEvent>();
+
+  return {
+    events: result.results || [],
+    total: countResult?.count || 0,
+  };
+}

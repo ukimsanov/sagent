@@ -136,6 +136,13 @@ export default {
     }
 
     // =========================================================================
+    // Admin: Send WhatsApp message from dashboard (Batch 4: Human Reply)
+    // =========================================================================
+    if (url.pathname === '/admin/send-message' && request.method === 'POST') {
+      return handleAdminSendMessage(request, env, ctx);
+    }
+
+    // =========================================================================
     // Admin: Product embedding endpoints (Phase 1: Semantic Search)
     // =========================================================================
     if (url.pathname.startsWith('/admin/embed')) {
@@ -589,6 +596,128 @@ async function handleAdminDLQ(request: Request, url: URL, env: Env): Promise<Res
 
   } catch (error) {
     console.error('Admin DLQ error:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: jsonHeaders
+    });
+  }
+}
+
+// ============================================================================
+// Admin: Send WhatsApp Message from Dashboard (POST /admin/send-message)
+// Batch 4: Human Agent Reply
+// ============================================================================
+
+async function handleAdminSendMessage(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+
+  // Auth check - reuse CLEANUP_SECRET for admin endpoints
+  const authHeader = request.headers.get('Authorization');
+  if (!env.CLEANUP_SECRET || authHeader !== `Bearer ${env.CLEANUP_SECRET}`) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders
+    });
+  }
+
+  try {
+    const body = await request.json() as {
+      businessId?: string;
+      phoneNumber?: string;
+      message?: string;
+      leadId?: string;
+    };
+
+    if (!body.businessId || !body.phoneNumber || !body.message) {
+      return new Response(JSON.stringify({
+        error: 'businessId, phoneNumber, and message are required'
+      }), { status: 400, headers: jsonHeaders });
+    }
+
+    if (body.message.length > MAX_MESSAGE_LENGTH) {
+      return new Response(JSON.stringify({
+        error: `Message too long (max ${MAX_MESSAGE_LENGTH} chars)`
+      }), { status: 400, headers: jsonHeaders });
+    }
+
+    // Validate business exists
+    const business = await db.getBusinessById(env.DB, body.businessId);
+    if (!business) {
+      return new Response(JSON.stringify({ error: 'Business not found' }), {
+        status: 404, headers: jsonHeaders
+      });
+    }
+
+    // Build send context
+    const sendCtx: SendContext = {
+      db: env.DB,
+      phoneNumberId: business.whatsapp_phone_id,
+      accessToken: env.WHATSAPP_ACCESS_TOKEN,
+      to: body.phoneNumber,
+      leadId: body.leadId || 'human-reply',
+      businessId: body.businessId,
+      incomingMessageId: 'dashboard-reply',
+    };
+
+    // Send via reliable sender
+    const result = await sendTextMessageReliable(sendCtx, body.message);
+
+    if (!result.success) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: result.error,
+        attempts: result.attempts,
+      }), { status: 502, headers: jsonHeaders });
+    }
+
+    // Log to message_events
+    const eventId = `evt-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    ctx.waitUntil(
+      db.insertMessageEvent(env.DB, {
+        id: eventId,
+        business_id: body.businessId,
+        lead_id: body.leadId || 'unknown',
+        timestamp: Date.now(),
+        action: 'human_reply',
+        intent_type: 'human_handoff',
+        user_message: null,
+        agent_response: body.message,
+        search_query: null,
+        products_shown: null,
+        flagged_for_human: 0,
+        clarification_count: 0,
+        processing_time_ms: 0,
+        sentiment: null,
+      }).catch(err => console.error('Failed to log human reply event:', err))
+    );
+
+    // Save to conversation DO if leadId provided
+    if (body.leadId) {
+      ctx.waitUntil(
+        addMessage(
+          env.CONVERSATION_DO,
+          body.businessId,
+          body.phoneNumber,
+          body.leadId,
+          { role: 'assistant', content: `[Human Agent] ${body.message}` }
+        ).catch(err => console.error('Failed to save to conversation DO:', err))
+      );
+    }
+
+    safeLog('info', 'Human agent reply sent from dashboard', {
+      businessId: body.businessId,
+      leadId: body.leadId,
+      messageLength: body.message.length,
+    });
+
+    return new Response(JSON.stringify({
+      success: true,
+      messageId: result.messageId,
+      attempts: result.attempts,
+    }), { headers: jsonHeaders });
+
+  } catch (error) {
+    console.error('Admin send-message error:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
       headers: jsonHeaders

@@ -14,6 +14,7 @@ export function getActionColor(action: string) {
     greet: "bg-chart-5/10 text-chart-5",
     thank: "bg-chart-2/10 text-chart-2",
     handoff: "bg-destructive/10 text-destructive",
+    human_reply: "bg-chart-5/10 text-chart-5",
     farewell: "bg-muted text-muted-foreground",
   };
   return colors[action] || "bg-muted text-muted-foreground";

@@ -45,7 +45,8 @@
 	// Environment variables (non-sensitive)
 	"vars": {
 		"NEXT_PUBLIC_WORKOS_REDIRECT_URI": "https://dashboard.ularkimsanov.com/auth/callback",
-		"WORKOS_COOKIE_DOMAIN": "ularkimsanov.com"
+		"WORKOS_COOKIE_DOMAIN": "ularkimsanov.com",
+		"WORKER_URL": "https://whatsapp-ai-agent.ularkimsanov7.workers.dev"
 	}
 	/**
 	 * Smart Placement
