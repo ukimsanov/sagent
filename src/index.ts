@@ -39,6 +39,9 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { transcribeAudioMessage } from './ai/transcription';
 import { sendHandoffNotification } from './notifications/handoff';
+import { buildDigestMetrics, sendDigestEmail } from './notifications/digest';
+import { processFollowUps } from './notifications/follow-up';
+import { getRecurringQuestionPatterns, generateFaqs, storeFaqs } from './ai/faq-generator';
 import * as db from './db/queries';
 // C4 FIX: Use Durable Objects for atomic conversation state (eliminates race conditions)
 import {
@@ -183,67 +186,186 @@ export default {
   },
 
   /**
-   * Scheduled handler for background summarization (Cron Trigger)
-   * Runs daily at 3 AM UTC to summarize conversations that:
-   * - Have at least 5 messages
-   * - Have new messages since last summary, OR no summary yet
+   * Scheduled handler for background tasks (Cron Triggers)
+   * Dispatches to different handlers based on the cron expression.
    */
   async scheduled(
-    _controller: ScheduledController,
+    controller: ScheduledController,
     env: Env,
     ctx: ExecutionContext
   ): Promise<void> {
-    console.log(`[Cron] Background summarization started at ${new Date().toISOString()}`);
+    console.log(`[Cron] Triggered: ${controller.cron} at ${new Date().toISOString()}`);
 
-    try {
-      // Get leads that need summarization
-      const leads = await db.getLeadsNeedingSummarization(env.DB, 50);
-      console.log(`[Cron] Found ${leads.length} leads needing summarization`);
+    switch (controller.cron) {
+      case '0 3 * * *':
+        // Daily 3 AM UTC: Conversation summarization
+        await handleSummarizationCron(env, ctx);
+        break;
 
-      if (leads.length === 0) {
-        console.log('[Cron] No conversations need summarization');
-        return;
-      }
+      case '0 8 * * *':
+        // Daily 8 AM UTC: Daily digest emails
+        ctx.waitUntil(handleDailyDigestCron(env));
+        break;
 
-      // Process each lead in the background
-      for (const lead of leads) {
-        ctx.waitUntil(
-          (async () => {
-            try {
-              // Get conversation from Durable Object
-              const conversationState = await getConversation(
-                env.CONVERSATION_DO,
-                lead.business_id,
-                lead.whatsapp_number,
-                lead.id
-              );
+      case '0 9 * * 1':
+        // Monday 9 AM UTC: Weekly digest + FAQ generation
+        ctx.waitUntil(handleWeeklyCron(env));
+        break;
 
-              const messages = conversationState.messages;
+      case '0 */4 * * *':
+        // Every 4 hours: Smart follow-up check
+        ctx.waitUntil(handleFollowUpCron(env));
+        break;
 
-              if (messages.length < 5) {
-                console.log(`[Cron] Skipping lead ${lead.id}: only ${messages.length} messages`);
-                return;
-              }
-
-              // Get existing summary
-              const existingSummary = await db.getConversationSummary(env.DB, lead.id);
-
-              // Run summarization
-              await summarizeConversation(env, lead.id, messages, existingSummary);
-              console.log(`[Cron] Summarized lead ${lead.id} (${messages.length} messages)`);
-            } catch (error) {
-              console.error(`[Cron] Failed to summarize lead ${lead.id}:`, error);
-            }
-          })()
-        );
-      }
-
-      console.log(`[Cron] Background summarization queued ${leads.length} leads`);
-    } catch (error) {
-      console.error('[Cron] Background summarization failed:', error);
+      default:
+        console.log(`[Cron] Unknown cron expression: ${controller.cron}`);
     }
   }
 } satisfies ExportedHandler<Env>;
+
+// ============================================================================
+// Cron Handlers
+// ============================================================================
+
+async function handleSummarizationCron(env: Env, ctx: ExecutionContext): Promise<void> {
+  console.log('[Cron] Background summarization started');
+  try {
+    const leads = await db.getLeadsNeedingSummarization(env.DB, 50);
+    console.log(`[Cron] Found ${leads.length} leads needing summarization`);
+
+    if (leads.length === 0) return;
+
+    for (const lead of leads) {
+      ctx.waitUntil(
+        (async () => {
+          try {
+            const conversationState = await getConversation(
+              env.CONVERSATION_DO,
+              lead.business_id,
+              lead.whatsapp_number,
+              lead.id
+            );
+            const messages = conversationState.messages;
+            if (messages.length < 5) return;
+
+            const existingSummary = await db.getConversationSummary(env.DB, lead.id);
+            await summarizeConversation(env, lead.id, messages, existingSummary);
+            console.log(`[Cron] Summarized lead ${lead.id}`);
+          } catch (error) {
+            console.error(`[Cron] Failed to summarize lead ${lead.id}:`, error);
+          }
+        })()
+      );
+    }
+    console.log(`[Cron] Summarization queued ${leads.length} leads`);
+  } catch (error) {
+    console.error('[Cron] Summarization failed:', error);
+  }
+}
+
+async function handleDailyDigestCron(env: Env): Promise<void> {
+  console.log('[Cron] Daily digest started');
+  try {
+    const businesses = await db.getBusinessesWithDailyDigest(env.DB);
+    if (businesses.length === 0) {
+      console.log('[Cron] No businesses with daily digest enabled');
+      return;
+    }
+
+    const now = Date.now();
+    const oneDayAgo = now - 86400000;
+
+    for (const biz of businesses) {
+      try {
+        const metrics = await buildDigestMetrics(env.DB, biz.id, oneDayAgo, now);
+        if (biz.digest_email && env.RESEND_API_KEY) {
+          await sendDigestEmail(biz, metrics, 'Daily', biz.digest_email, env.RESEND_API_KEY, env.WORKER_URL);
+        }
+      } catch (error) {
+        console.error(`[Cron] Daily digest failed for ${biz.id}:`, error);
+      }
+    }
+    console.log(`[Cron] Daily digest sent to ${businesses.length} businesses`);
+  } catch (error) {
+    console.error('[Cron] Daily digest cron failed:', error);
+  }
+}
+
+async function handleWeeklyCron(env: Env): Promise<void> {
+  console.log('[Cron] Weekly cron started');
+  try {
+    // 1. Weekly digest emails
+    const weeklyBiz = await db.getBusinessesWithWeeklyDigest(env.DB);
+    const now = Date.now();
+    const oneWeekAgo = now - 7 * 86400000;
+
+    for (const biz of weeklyBiz) {
+      try {
+        const metrics = await buildDigestMetrics(env.DB, biz.id, oneWeekAgo, now);
+        if (biz.digest_email && env.RESEND_API_KEY) {
+          await sendDigestEmail(biz, metrics, 'Weekly', biz.digest_email, env.RESEND_API_KEY, env.WORKER_URL);
+        }
+      } catch (error) {
+        console.error(`[Cron] Weekly digest failed for ${biz.id}:`, error);
+      }
+    }
+
+    // 2. FAQ generation for ALL businesses
+    const allBiz = await db.getAllBusinesses(env.DB);
+    const thirtyDaysAgo = now - 30 * 86400000;
+
+    for (const biz of allBiz) {
+      try {
+        if (!env.OPENAI_API_KEY) continue;
+        const patterns = await getRecurringQuestionPatterns(env.DB, biz.id, thirtyDaysAgo);
+        if (patterns.length === 0) continue;
+
+        const faqs = await generateFaqs(patterns, biz, env.OPENAI_API_KEY, env.AI_GATEWAY_BASE_URL);
+        if (faqs.length === 0) continue;
+
+        const result = await storeFaqs(env.DB, biz.id, faqs);
+        console.log(`[Cron] FAQs for ${biz.id}: ${result.created} created, ${result.updated} updated`);
+      } catch (error) {
+        console.error(`[Cron] FAQ generation failed for ${biz.id}:`, error);
+      }
+    }
+
+    console.log('[Cron] Weekly cron complete');
+  } catch (error) {
+    console.error('[Cron] Weekly cron failed:', error);
+  }
+}
+
+async function handleFollowUpCron(env: Env): Promise<void> {
+  console.log('[Cron] Follow-up check started');
+  try {
+    const businesses = await db.getBusinessesWithFollowUpEnabled(env.DB);
+    if (businesses.length === 0) {
+      console.log('[Cron] No businesses with follow-up enabled');
+      return;
+    }
+
+    for (const biz of businesses) {
+      try {
+        if (!env.OPENAI_API_KEY || !env.WHATSAPP_ACCESS_TOKEN) continue;
+        const results = await processFollowUps(env.DB, biz, {
+          openaiApiKey: env.OPENAI_API_KEY,
+          whatsappAccessToken: env.WHATSAPP_ACCESS_TOKEN,
+          aiGatewayBaseURL: env.AI_GATEWAY_BASE_URL,
+        });
+        const sent = results.filter(r => r.success).length;
+        if (sent > 0) {
+          console.log(`[Cron] Follow-ups for ${biz.name}: ${sent} sent`);
+        }
+      } catch (error) {
+        console.error(`[Cron] Follow-up failed for ${biz.id}:`, error);
+      }
+    }
+    console.log('[Cron] Follow-up check complete');
+  } catch (error) {
+    console.error('[Cron] Follow-up cron failed:', error);
+  }
+}
 
 // ============================================================================
 // Image Serving (GET /images/*) - Public endpoint for WhatsApp to fetch

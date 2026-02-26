@@ -38,6 +38,13 @@ export interface Business {
   auto_handoff_threshold: number;
   ai_enabled: number; // 0 = disabled, 1 = enabled (default)
 
+  // Phase 6: Automation settings
+  digest_email: string | null;
+  digest_daily_enabled: number;
+  digest_weekly_enabled: number;
+  follow_up_enabled: number;
+  follow_up_delay_hours: number;
+
   created_at: number;
   updated_at: number;
 }
@@ -1280,4 +1287,56 @@ export async function getLeadWithSummary(
   const summary = await getConversationSummary(db, leadId);
 
   return { lead, summary };
+}
+
+// ============================================================================
+// Phase 6: Automation Queries
+// ============================================================================
+
+/**
+ * Get businesses with daily digest enabled
+ */
+export async function getBusinessesWithDailyDigest(
+  db: D1Database,
+): Promise<Business[]> {
+  const result = await db
+    .prepare('SELECT * FROM businesses WHERE digest_daily_enabled = 1 AND digest_email IS NOT NULL')
+    .all<Business>();
+  return result.results || [];
+}
+
+/**
+ * Get businesses with weekly digest enabled
+ */
+export async function getBusinessesWithWeeklyDigest(
+  db: D1Database,
+): Promise<Business[]> {
+  const result = await db
+    .prepare('SELECT * FROM businesses WHERE digest_weekly_enabled = 1 AND digest_email IS NOT NULL')
+    .all<Business>();
+  return result.results || [];
+}
+
+/**
+ * Get businesses with follow-up enabled
+ */
+export async function getBusinessesWithFollowUpEnabled(
+  db: D1Database,
+): Promise<Business[]> {
+  const result = await db
+    .prepare('SELECT * FROM businesses WHERE follow_up_enabled = 1')
+    .all<Business>();
+  return result.results || [];
+}
+
+/**
+ * Get all businesses (for FAQ generation)
+ */
+export async function getAllBusinesses(
+  db: D1Database,
+): Promise<Business[]> {
+  const result = await db
+    .prepare('SELECT * FROM businesses')
+    .all<Business>();
+  return result.results || [];
 }

@@ -72,6 +72,12 @@ export interface Business {
   timezone: string | null;
   // Phase 6: AI enable/disable toggle
   ai_enabled: number; // 0 = disabled, 1 = enabled (default)
+  // Phase 6: Automation settings
+  digest_email: string | null;
+  digest_daily_enabled: number;
+  digest_weekly_enabled: number;
+  follow_up_enabled: number;
+  follow_up_delay_hours: number;
 }
 
 export interface Product {
@@ -532,6 +538,27 @@ export async function updateBusinessConfig(
   if (config.timezone !== undefined) {
     updates.push('timezone = ?');
     values.push(config.timezone);
+  }
+  // Phase 6: Automation settings
+  if ((config as any).digest_email !== undefined) {
+    updates.push('digest_email = ?');
+    values.push((config as any).digest_email);
+  }
+  if ((config as any).digest_daily_enabled !== undefined) {
+    updates.push('digest_daily_enabled = ?');
+    values.push((config as any).digest_daily_enabled);
+  }
+  if ((config as any).digest_weekly_enabled !== undefined) {
+    updates.push('digest_weekly_enabled = ?');
+    values.push((config as any).digest_weekly_enabled);
+  }
+  if ((config as any).follow_up_enabled !== undefined) {
+    updates.push('follow_up_enabled = ?');
+    values.push((config as any).follow_up_enabled);
+  }
+  if ((config as any).follow_up_delay_hours !== undefined) {
+    updates.push('follow_up_delay_hours = ?');
+    values.push((config as any).follow_up_delay_hours);
   }
 
   if (updates.length === 0) return;
@@ -1579,4 +1606,93 @@ export async function getLeadCallbacks(
     .all<CallbackRequest>();
 
   return result.results || [];
+}
+
+// ============================================================================
+// Auto-FAQ Queries
+// ============================================================================
+
+export interface AutoFaq {
+  id: string;
+  business_id: string;
+  question: string;
+  answer: string;
+  frequency: number;
+  source_intents: string | null;
+  status: 'draft' | 'approved' | 'rejected';
+  created_at: number;
+  updated_at: number;
+}
+
+export async function getFaqs(
+  db: D1Database,
+  businessId: string,
+  status?: string,
+): Promise<AutoFaq[]> {
+  let sql = 'SELECT * FROM auto_faqs WHERE business_id = ?';
+  const params: (string | number)[] = [businessId];
+
+  if (status && status !== 'all') {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+
+  sql += ' ORDER BY CASE status WHEN \'draft\' THEN 1 WHEN \'approved\' THEN 2 ELSE 3 END, frequency DESC';
+
+  const result = await db.prepare(sql).bind(...params).all<AutoFaq>();
+  return result.results || [];
+}
+
+export async function getFaqById(
+  db: D1Database,
+  faqId: string,
+): Promise<AutoFaq | null> {
+  return db.prepare('SELECT * FROM auto_faqs WHERE id = ?').bind(faqId).first<AutoFaq>();
+}
+
+export async function updateFaq(
+  db: D1Database,
+  faqId: string,
+  updates: { status?: string; question?: string; answer?: string },
+): Promise<void> {
+  const fields: string[] = [];
+  const values: (string | number)[] = [];
+
+  if (updates.status !== undefined) {
+    fields.push('status = ?');
+    values.push(updates.status);
+  }
+  if (updates.question !== undefined) {
+    fields.push('question = ?');
+    values.push(updates.question);
+  }
+  if (updates.answer !== undefined) {
+    fields.push('answer = ?');
+    values.push(updates.answer);
+  }
+
+  if (fields.length === 0) return;
+
+  fields.push('updated_at = unixepoch()');
+  values.push(faqId);
+
+  await db.prepare(`UPDATE auto_faqs SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function getFaqStats(
+  db: D1Database,
+  businessId: string,
+): Promise<{ total: number; draft: number; approved: number; rejected: number }> {
+  const result = await db.prepare(
+    `SELECT status, COUNT(*) as count FROM auto_faqs WHERE business_id = ? GROUP BY status`,
+  ).bind(businessId).all<{ status: string; count: number }>();
+
+  const stats = { total: 0, draft: 0, approved: 0, rejected: 0 };
+  for (const row of result.results || []) {
+    stats.total += row.count;
+    if (row.status === 'draft') stats.draft = row.count;
+    else if (row.status === 'approved') stats.approved = row.count;
+    else if (row.status === 'rejected') stats.rejected = row.count;
+  }
+  return stats;
 }

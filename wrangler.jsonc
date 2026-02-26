@@ -64,9 +64,14 @@
 		"binding": "AI"
 	},
 
-	// Cron triggers for background summarization
+	// Cron triggers for background tasks
 	"triggers": {
-		"crons": ["0 3 * * *"]  // Daily at 3 AM UTC
+		"crons": [
+			"0 3 * * *",    // Daily 3 AM UTC: Conversation summarization
+			"0 8 * * *",    // Daily 8 AM UTC: Daily digest emails
+			"0 9 * * 1",    // Monday 9 AM UTC: Weekly digest + FAQ generation
+			"0 */4 * * *"   // Every 4 hours: Smart follow-up check
+		]
 	}
 
 	// Secrets (set via `wrangler secret put`):

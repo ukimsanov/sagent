@@ -306,6 +306,17 @@ export async function handleIncomingMessage(ctx: HandlerContext): Promise<Handle
     availableCategories
   );
 
+  // Step 2b: Load approved FAQs for LLM context
+  try {
+    const { getApprovedFaqs } = await import('./faq-generator');
+    const approvedFaqs = await getApprovedFaqs(ctx.db, ctx.businessId, 10);
+    if (approvedFaqs.length > 0) {
+      environment.faqs = approvedFaqs;
+    }
+  } catch {
+    // FAQ loading is non-critical
+  }
+
   // Step 3: Build prompts
   const systemPrompt = buildDecisionSystemPrompt(
     ctx.business.name,

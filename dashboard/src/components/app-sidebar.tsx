@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Calendar,
   Ticket,
+  HelpCircle,
 } from "lucide-react";
 import type { AuthUser } from "@/types/auth";
 
@@ -68,6 +69,11 @@ const navItems = [
     title: "Promo Codes",
     href: "/promos",
     icon: Ticket,
+  },
+  {
+    title: "Auto-FAQs",
+    href: "/faqs",
+    icon: HelpCircle,
   },
 ];
 

@@ -22,6 +22,13 @@ CREATE TABLE IF NOT EXISTS businesses (
   handoff_phone TEXT, -- Phone to notify on handoff (optional)
   auto_handoff_threshold INTEGER DEFAULT 3, -- Clarifications before auto-handoff
 
+  -- Phase 6: Automation settings
+  digest_email TEXT, -- Email for daily/weekly digest reports
+  digest_daily_enabled INTEGER DEFAULT 0, -- 1 = send daily digest
+  digest_weekly_enabled INTEGER DEFAULT 0, -- 1 = send weekly digest
+  follow_up_enabled INTEGER DEFAULT 0, -- 1 = enable smart follow-ups
+  follow_up_delay_hours INTEGER DEFAULT 4, -- Hours of quiet before follow-up (2/4/8/12/24)
+
   created_at INTEGER DEFAULT (unixepoch()),
   updated_at INTEGER DEFAULT (unixepoch())
 );
@@ -204,6 +211,37 @@ CREATE TABLE IF NOT EXISTS dead_letter_queue (
 CREATE INDEX IF NOT EXISTS idx_dead_letter_type ON dead_letter_queue(operation_type);
 CREATE INDEX IF NOT EXISTS idx_dead_letter_created ON dead_letter_queue(created_at);
 CREATE INDEX IF NOT EXISTS idx_dead_letter_unresolved ON dead_letter_queue(resolved_at) WHERE resolved_at IS NULL;
+
+-- Follow-ups tracking (Phase 6: Smart Follow-ups)
+CREATE TABLE IF NOT EXISTS follow_ups (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL,
+  lead_id TEXT NOT NULL,
+  message TEXT NOT NULL,
+  status TEXT DEFAULT 'sent',
+  created_at INTEGER DEFAULT (unixepoch()),
+  sent_at INTEGER,
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+  FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_follow_ups_business ON follow_ups(business_id);
+CREATE INDEX IF NOT EXISTS idx_follow_ups_lead ON follow_ups(lead_id, created_at);
+
+-- Auto-generated FAQs (Phase 6: Auto-FAQ)
+CREATE TABLE IF NOT EXISTS auto_faqs (
+  id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  frequency INTEGER DEFAULT 1,
+  source_intents TEXT, -- JSON: intent types that produced this FAQ
+  status TEXT DEFAULT 'draft', -- 'draft', 'approved', 'rejected'
+  created_at INTEGER DEFAULT (unixepoch()),
+  updated_at INTEGER DEFAULT (unixepoch()),
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_auto_faqs_business ON auto_faqs(business_id, status);
+CREATE INDEX IF NOT EXISTS idx_auto_faqs_frequency ON auto_faqs(business_id, frequency DESC);
 
 -- User to Business mapping for multi-tenancy (WorkOS integration)
 -- Links WorkOS user IDs to business accounts

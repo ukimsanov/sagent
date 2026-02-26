@@ -3,7 +3,7 @@ import { getDB, getBusinessById } from "@/lib/db";
 import { requireBusinessForPage } from "@/lib/auth-utils";
 import { SettingsForm } from "./settings-form";
 import { BlurFade } from "@/components/ui/blur-fade";
-import { MessageSquare, Users, Clock, Settings, Power } from "lucide-react";
+import { MessageSquare, Users, Clock, Settings, Power, Mail, RefreshCw } from "lucide-react";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 
@@ -160,6 +160,63 @@ export default async function SettingsPage() {
                   timezone: business.timezone || "America/New_York",
                   working_hours: business.working_hours || "",
                   after_hours_message: business.after_hours_message || "",
+                }}
+              />
+            </CardContent>
+          </Card>
+        </BlurFade>
+
+        {/* Email Digests */}
+        <BlurFade delay={0.3}>
+          <Card className="transition-all duration-200 hover:shadow-md">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-chart-2/10 flex items-center justify-center">
+                  <Mail className="h-4 w-4 text-chart-2" />
+                </div>
+                <div>
+                  <CardTitle>Email Digests</CardTitle>
+                  <CardDescription>
+                    Receive daily or weekly performance reports via email
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <SettingsForm
+                section="digest"
+                initialData={{
+                  digest_email: business.digest_email || "",
+                  digest_daily_enabled: business.digest_daily_enabled ?? 0,
+                  digest_weekly_enabled: business.digest_weekly_enabled ?? 0,
+                }}
+              />
+            </CardContent>
+          </Card>
+        </BlurFade>
+
+        {/* Smart Follow-ups */}
+        <BlurFade delay={0.35}>
+          <Card className="transition-all duration-200 hover:shadow-md">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-chart-5/10 flex items-center justify-center">
+                  <RefreshCw className="h-4 w-4 text-chart-5" />
+                </div>
+                <div>
+                  <CardTitle>Smart Follow-ups</CardTitle>
+                  <CardDescription>
+                    Automatically re-engage quiet leads within the WhatsApp 24h window
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <SettingsForm
+                section="followup"
+                initialData={{
+                  follow_up_enabled: business.follow_up_enabled ?? 0,
+                  follow_up_delay_hours: business.follow_up_delay_hours ?? 4,
                 }}
               />
             </CardContent>

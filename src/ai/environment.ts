@@ -53,6 +53,7 @@ export interface EnvironmentSnapshot {
   current_message: string;
   capabilities: string[];
   tenant_rules: TenantRules;
+  faqs?: Array<{ question: string; answer: string }>;
 }
 
 // ============================================================================

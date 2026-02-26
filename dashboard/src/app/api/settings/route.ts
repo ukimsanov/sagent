@@ -17,6 +17,12 @@ interface SettingsBody {
   timezone?: string;
   working_hours?: string;
   after_hours_message?: string;
+  // Phase 6: Automation settings
+  digest_email?: string;
+  digest_daily_enabled?: number;
+  digest_weekly_enabled?: number;
+  follow_up_enabled?: number;
+  follow_up_delay_hours?: number;
 }
 
 export async function POST(request: NextRequest) {
@@ -73,6 +79,23 @@ export async function POST(request: NextRequest) {
     }
     if (config.after_hours_message !== undefined) {
       updateConfig.after_hours_message = config.after_hours_message || null;
+    }
+
+    // Automation settings
+    if (config.digest_email !== undefined) {
+      updateConfig.digest_email = config.digest_email || null;
+    }
+    if (config.digest_daily_enabled !== undefined) {
+      updateConfig.digest_daily_enabled = config.digest_daily_enabled;
+    }
+    if (config.digest_weekly_enabled !== undefined) {
+      updateConfig.digest_weekly_enabled = config.digest_weekly_enabled;
+    }
+    if (config.follow_up_enabled !== undefined) {
+      updateConfig.follow_up_enabled = config.follow_up_enabled;
+    }
+    if (config.follow_up_delay_hours !== undefined) {
+      updateConfig.follow_up_delay_hours = config.follow_up_delay_hours;
     }
 
     await updateBusinessConfig(db, businessId, updateConfig);

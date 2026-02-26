@@ -272,6 +272,11 @@ export function buildDecisionUserInput(env: EnvironmentSnapshot): string {
   const productsSection = buildProductsSection(env);
   const conversationSection = buildConversationSection(env);
 
+  // Build FAQ section if FAQs exist
+  const faqSection = env.faqs && env.faqs.length > 0
+    ? `\n## Frequently Asked Questions\nUse these answers when relevant. Adapt to conversation tone.\n${env.faqs.map(f => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}\n`
+    : '';
+
   return `## Customer Context
 ${customerSection}
 
@@ -280,7 +285,7 @@ ${productsSection}
 
 ## Recent Conversation
 ${conversationSection}
-
+${faqSection}
 ## Current Message
 Customer: ${env.current_message}
 
