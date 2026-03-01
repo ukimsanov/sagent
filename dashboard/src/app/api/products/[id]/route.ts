@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDB, getProductById, updateProduct, deleteProduct, toggleProductStock } from "@/lib/db";
+import { getDB, getProductById, updateProduct, deleteProduct, toggleProductStock, saveProductVariants } from "@/lib/db";
 import { requireBusinessId } from "@/lib/auth-utils";
 import { withAuth } from "@workos-inc/authkit-nextjs";
+import { triggerEmbeddingsBackground } from "@/lib/worker-proxy";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -64,6 +65,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
+    interface VariantInput {
+      size?: string | null;
+      color?: string | null;
+      sku?: string | null;
+      stock_quantity?: number;
+      price_override?: number | null;
+    }
+
     interface ProductUpdateBody {
       name?: string;
       description?: string | null;
@@ -74,6 +83,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       stock_quantity?: number | string | null;
       metadata?: Record<string, unknown> | null;
       image_urls?: string[];
+      variants?: VariantInput[];
     }
 
     const body = await request.json() as ProductUpdateBody;
@@ -135,8 +145,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     await updateProduct(db, id, updates);
 
+    // Save variants if provided
+    if (body.variants !== undefined) {
+      await saveProductVariants(db, id, body.variants);
+    }
+
     // Fetch and return the updated product
     const updatedProduct = await getProductById(db, id);
+
+    // Trigger embedding regeneration in background (non-blocking)
+    triggerEmbeddingsBackground(businessId);
 
     return NextResponse.json({ product: updatedProduct });
   } catch (error) {
@@ -170,6 +188,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     await deleteProduct(db, id);
+
+    // Trigger embedding regeneration in background (non-blocking)
+    triggerEmbeddingsBackground(businessId);
 
     return NextResponse.json({ success: true });
   } catch (error) {

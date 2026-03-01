@@ -7,6 +7,7 @@
 	"observability": {
 		"enabled": true
 	},
+	"workers_dev": true,
 
 	// D1 Database for business data, products, leads
 	"d1_databases": [
@@ -63,6 +64,14 @@
 	"ai": {
 		"binding": "AI"
 	},
+
+	// Custom domain for webhook (Meta WhatsApp callback)
+	"routes": [
+		{
+			"pattern": "agent.ularkimsanov.com",
+			"custom_domain": true
+		}
+	],
 
 	// Cron triggers for background tasks
 	"triggers": {

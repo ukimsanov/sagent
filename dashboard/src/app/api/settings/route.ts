@@ -7,6 +7,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 // See: https://opennext.js.org/cloudflare
 
 interface SettingsBody {
+  whatsapp_phone_id?: string;
   ai_enabled?: number;
   brand_tone?: string;
   greeting_template?: string;
@@ -42,6 +43,11 @@ export async function POST(request: NextRequest) {
 
     // Build the config object with only the fields that were provided
     const updateConfig: Record<string, string | number | null> = {};
+
+    // WhatsApp connection
+    if (config.whatsapp_phone_id !== undefined) {
+      updateConfig.whatsapp_phone_id = config.whatsapp_phone_id.trim();
+    }
 
     // AI status
     if (config.ai_enabled !== undefined) {

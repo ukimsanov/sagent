@@ -32,6 +32,7 @@ export interface ProductContext {
   category: string;
   sizes?: string[];
   colors?: string[];
+  size_stock?: string; // e.g., "S(3) M(5) L(0) XL(2)"
   has_image: boolean;
   in_stock: boolean;
 }
@@ -168,11 +169,32 @@ function buildCustomerContext(
  * Build product context for LLM consumption
  */
 function buildProductContext(product: ProductWithMetadata): ProductContext {
-  // Parse metadata for sizes and colors
   let sizes: string[] | undefined;
   let colors: string[] | undefined;
+  let sizeStock: string | undefined;
 
-  if (product.metadata) {
+  // Prefer variant data from product_variants table
+  if (product.variants && product.variants.length > 0) {
+    const uniqueSizes = [...new Set(product.variants.filter(v => v.size).map(v => v.size!))];
+    const uniqueColors = [...new Set(product.variants.filter(v => v.color).map(v => v.color!))];
+
+    if (uniqueSizes.length > 0) sizes = uniqueSizes;
+    if (uniqueColors.length > 0) colors = uniqueColors;
+
+    // Build size→stock summary for the LLM (e.g., "S(3) M(5) L(0) XL(2)")
+    if (uniqueSizes.length > 0) {
+      const stockBySize = new Map<string, number>();
+      for (const v of product.variants) {
+        if (v.size) {
+          stockBySize.set(v.size, (stockBySize.get(v.size) || 0) + v.stock_quantity);
+        }
+      }
+      sizeStock = uniqueSizes
+        .map(s => `${s}(${stockBySize.get(s) || 0})`)
+        .join(' ');
+    }
+  } else if (product.metadata) {
+    // Fallback: read from legacy metadata JSON
     const meta = product.metadata as Record<string, unknown>;
     if (Array.isArray(meta.sizes)) {
       sizes = meta.sizes as string[];
@@ -196,6 +218,7 @@ function buildProductContext(product: ProductWithMetadata): ProductContext {
     category: product.category || 'Uncategorized',
     sizes,
     colors,
+    size_stock: sizeStock,
     has_image: product.image_urls.length > 0,
     in_stock: product.in_stock === 1,
   };

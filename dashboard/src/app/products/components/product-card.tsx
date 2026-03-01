@@ -47,19 +47,19 @@ export function ProductCard({
       exit={{ opacity: 0, y: -20 }}
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
-      className="group relative bg-card rounded-xl border border-border overflow-hidden"
+      className="group relative bg-card rounded-lg border border-border overflow-hidden"
       style={{ transform: "translateZ(0)" }} // Safari GPU acceleration
     >
       {/* Image Container */}
       <Link href={`/products/${product.id}`} className="block">
-        <div className="relative aspect-square bg-muted overflow-hidden">
+        <div className="relative aspect-4/3 bg-muted overflow-hidden">
           {imageUrl ? (
             <Image
               src={imageUrl}
               alt={product.name}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
-              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 20vw"
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-muted">
@@ -68,10 +68,10 @@ export function ProductCard({
           )}
 
           {/* Stock Badge Overlay */}
-          <div className="absolute top-3 left-3">
+          <div className="absolute top-2 left-2">
             <Badge
               variant={isInStock ? "default" : "secondary"}
-              className={`text-xs font-medium ${
+              className={`text-[10px] font-medium ${
                 isInStock
                   ? "bg-emerald-500/90 hover:bg-emerald-500/90 text-white"
                   : "bg-zinc-500/90 hover:bg-zinc-500/90 text-white"
@@ -82,13 +82,13 @@ export function ProductCard({
           </div>
 
           {/* Actions Menu */}
-          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="secondary"
                   size="icon"
-                  className="h-8 w-8 bg-white/90 hover:bg-white shadow-sm"
+                  className="h-7 w-7 bg-white/90 hover:bg-white shadow-sm"
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
@@ -114,7 +114,7 @@ export function ProductCard({
       </Link>
 
       {/* Content */}
-      <div className="p-4 space-y-3">
+      <div className="p-3 space-y-2">
         {/* Category */}
         {product.category && (
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -124,14 +124,14 @@ export function ProductCard({
 
         {/* Title */}
         <Link href={`/products/${product.id}`} className="block">
-          <h3 className="font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
+          <h3 className="font-semibold text-sm text-foreground line-clamp-1 group-hover:text-primary transition-colors">
             {product.name}
           </h3>
         </Link>
 
         {/* Price */}
         <div className="flex items-center justify-between">
-          <span className="text-lg font-bold text-foreground">
+          <span className="text-sm font-bold text-foreground">
             {formatPrice(product.price, product.currency)}
           </span>
 
@@ -147,12 +147,33 @@ export function ProductCard({
           </div>
         </div>
 
-        {/* Stock Quantity */}
-        {product.stock_quantity !== null && (
+        {/* Variant Sizes / Stock Quantity */}
+        {product.variants && product.variants.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {[...new Set(product.variants.map((v) => v.size).filter(Boolean))].map(
+              (size) => {
+                const totalStock = product.variants
+                  .filter((v) => v.size === size)
+                  .reduce((sum, v) => sum + v.stock_quantity, 0);
+                return (
+                  <Badge
+                    key={size}
+                    variant="outline"
+                    className={`text-[10px] px-1.5 py-0 ${
+                      totalStock === 0 ? "opacity-40 line-through" : ""
+                    }`}
+                  >
+                    {size}
+                  </Badge>
+                );
+              }
+            )}
+          </div>
+        ) : product.stock_quantity !== null ? (
           <p className="text-xs text-muted-foreground">
             {product.stock_quantity} units available
           </p>
-        )}
+        ) : null}
       </div>
     </motion.div>
   );

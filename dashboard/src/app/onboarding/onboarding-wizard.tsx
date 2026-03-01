@@ -31,6 +31,7 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
   // Step 1 data
   const [businessName, setBusinessName] = useState("");
   const [timezone, setTimezone] = useState("America/New_York");
+  const [whatsappPhoneId, setWhatsappPhoneId] = useState("");
 
   // Step 2 data
   const [brandTone, setBrandTone] = useState("friendly");
@@ -49,6 +50,7 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
         body: JSON.stringify({
           name: businessName.trim(),
           timezone,
+          whatsapp_phone_id: whatsappPhoneId.trim() || "",
           brand_tone: brandTone,
           greeting_template: greetingTemplate || null,
         }),
@@ -141,6 +143,19 @@ export function OnboardingWizard({ userName }: OnboardingWizardProps) {
                   <SelectItem value="UTC">UTC</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="whatsapp-phone-id">WhatsApp Phone Number ID</Label>
+              <Input
+                id="whatsapp-phone-id"
+                placeholder="e.g., 123456789012345"
+                value={whatsappPhoneId}
+                onChange={(e) => setWhatsappPhoneId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Found in Meta Developer Dashboard &rarr; WhatsApp &rarr; API Setup. You can add this later in Settings.
+              </p>
             </div>
 
             <Button

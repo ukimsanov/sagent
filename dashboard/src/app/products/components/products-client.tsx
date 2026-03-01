@@ -9,6 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ProductCard } from "./product-card";
 import { ProductTable } from "./product-table";
+import { ImportExportButtons } from "./import-export";
+import { SyncSearchButton } from "./sync-search-button";
 import type { ProductWithImages } from "@/lib/db";
 
 interface ProductsClientProps {
@@ -131,13 +133,17 @@ export function ProductsClient({
               </TabsTrigger>
             </TabsList>
 
-            {/* Add Product button */}
-            <Button asChild>
-              <Link href="/products/new">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Product
-              </Link>
-            </Button>
+            {/* Sync + Import/Export + Add Product */}
+            <div className="flex items-center gap-2">
+              <SyncSearchButton />
+              <ImportExportButtons />
+              <Button asChild>
+                <Link href="/products/new">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Product
+                </Link>
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -145,7 +151,7 @@ export function ProductsClient({
       {/* Grid View */}
       <TabsContent value="grid" className="mt-0">
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
           style={{ transform: "translateZ(0)", WebkitBackfaceVisibility: "hidden" }}
         >
           {products.map((product) => (

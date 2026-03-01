@@ -362,9 +362,6 @@ async function processLLMDecision(
   const config = getBusinessConfig(ctx.business);
 
   console.log('✅ LLM decision:', decision.conversation_action);
-  if (decision.reasoning) {
-    console.log('📝 Reasoning:', decision.reasoning);
-  }
 
   // Validate the decision
   const validation = validateDecision(decision);
@@ -420,13 +417,17 @@ async function processLLMDecision(
 
   // Check if we need to send images
   let imagesToSend: Array<{ url: string; caption?: string }> | undefined;
+  console.log(`📸 Image check: action=${finalDecision.conversation_action}, product_ids=${JSON.stringify(finalDecision.product_ids)}, products_with_images=${products.filter(p => p.image_urls.length > 0).length}`);
   if (shouldSendImages(finalDecision, products)) {
     const productsWithImages = getProductsWithImages(finalDecision, products);
     imagesToSend = productsWithImages.map(p => ({
-      url: p.image_urls[0], // First image
+      // WhatsApp only supports JPEG/PNG — prefer those over WebP
+      url: p.image_urls.find(u => /\.(jpe?g|png)$/i.test(u)) || p.image_urls[0],
       caption: `${p.name} - $${p.price}`,
     }));
-    console.log(`📸 Will send ${imagesToSend.length} product images`);
+    console.log(`📸 Will send ${imagesToSend.length} product images: ${imagesToSend.map(i => i.url).join(', ')}`);
+  } else {
+    console.log(`📸 Skipping images: shouldSendImages returned false`);
   }
 
   // Map conversation_action to ResponseAction

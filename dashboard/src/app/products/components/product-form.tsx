@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { ImageUpload } from "./image-upload";
 import { CategorySelector } from "./category-selector";
+import { VariantManager, type VariantRow } from "./variant-manager";
 import type { ProductWithImages } from "@/lib/db";
 
 interface ProductFormProps {
@@ -41,6 +42,7 @@ interface FormData {
   in_stock: boolean;
   stock_quantity: number | null;
   image_urls: string[];
+  variants: VariantRow[];
 }
 
 interface FormErrors {
@@ -78,6 +80,13 @@ export function ProductForm({ product, categories, mode }: ProductFormProps) {
     in_stock: product?.in_stock === 1,
     stock_quantity: product?.stock_quantity ?? null,
     image_urls: product?.image_urls ?? [],
+    variants: (product?.variants ?? []).map((v) => ({
+      size: v.size ?? "",
+      color: v.color ?? "",
+      sku: v.sku ?? "",
+      stock_quantity: v.stock_quantity ?? 0,
+      price_override: v.price_override?.toString() ?? "",
+    })),
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -120,6 +129,15 @@ export function ProductForm({ product, categories, mode }: ProductFormProps) {
         in_stock: formData.in_stock,
         stock_quantity: formData.stock_quantity,
         image_urls: formData.image_urls,
+        variants: formData.variants
+          .filter((v) => v.size || v.color) // only save variants with at least size or color
+          .map((v) => ({
+            size: v.size || null,
+            color: v.color || null,
+            sku: v.sku || null,
+            stock_quantity: v.stock_quantity,
+            price_override: v.price_override ? parseFloat(v.price_override) : null,
+          })),
       };
 
       const url =
@@ -149,7 +167,7 @@ export function ProductForm({ product, categories, mode }: ProductFormProps) {
 
   const handleChange = (
     field: keyof FormData,
-    value: string | boolean | string[] | number | null
+    value: string | boolean | string[] | number | null | VariantRow[]
   ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field as keyof FormErrors]) {
@@ -370,6 +388,16 @@ export function ProductForm({ product, categories, mode }: ProductFormProps) {
             </p>
           </div>
         </NumberField>
+      </div>
+
+      {/* Variants Section */}
+      <div className="space-y-4">
+        <h3 className="font-medium text-base border-b pb-2">Sizes &amp; Variants</h3>
+        <VariantManager
+          variants={formData.variants}
+          onChange={(variants) => handleChange("variants", variants)}
+          disabled={isSubmitting}
+        />
       </div>
 
       {/* Actions */}

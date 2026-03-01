@@ -3,7 +3,7 @@ import { getDB, getBusinessById } from "@/lib/db";
 import { requireBusinessForPage } from "@/lib/auth-utils";
 import { SettingsForm } from "./settings-form";
 import { BlurFade } from "@/components/ui/blur-fade";
-import { MessageSquare, Users, Clock, Settings, Power, Mail, RefreshCw } from "lucide-react";
+import { MessageSquare, Users, Clock, Settings, Power, Mail, RefreshCw, Smartphone } from "lucide-react";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { redirect } from "next/navigation";
 
@@ -52,8 +52,35 @@ export default async function SettingsPage() {
       </BlurFade>
 
       <div className="grid gap-6">
-        {/* AI Status */}
+        {/* WhatsApp Connection */}
         <BlurFade delay={0.1}>
+          <Card className="transition-all duration-200 hover:shadow-md">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                  <Smartphone className="h-4 w-4 text-emerald-500" />
+                </div>
+                <div>
+                  <CardTitle>WhatsApp Connection</CardTitle>
+                  <CardDescription>
+                    Connect your WhatsApp Business phone number to receive messages
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <SettingsForm
+                section="whatsapp"
+                initialData={{
+                  whatsapp_phone_id: business.whatsapp_phone_id || "",
+                }}
+              />
+            </CardContent>
+          </Card>
+        </BlurFade>
+
+        {/* AI Status */}
+        <BlurFade delay={0.15}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -80,7 +107,7 @@ export default async function SettingsPage() {
         </BlurFade>
 
         {/* Brand Voice */}
-        <BlurFade delay={0.15}>
+        <BlurFade delay={0.2}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -108,7 +135,7 @@ export default async function SettingsPage() {
         </BlurFade>
 
         {/* Handoff Settings */}
-        <BlurFade delay={0.2}>
+        <BlurFade delay={0.25}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -138,7 +165,7 @@ export default async function SettingsPage() {
         </BlurFade>
 
         {/* Store Hours */}
-        <BlurFade delay={0.25}>
+        <BlurFade delay={0.3}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -167,7 +194,7 @@ export default async function SettingsPage() {
         </BlurFade>
 
         {/* Email Digests */}
-        <BlurFade delay={0.3}>
+        <BlurFade delay={0.35}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">
@@ -196,7 +223,7 @@ export default async function SettingsPage() {
         </BlurFade>
 
         {/* Smart Follow-ups */}
-        <BlurFade delay={0.35}>
+        <BlurFade delay={0.4}>
           <Card className="transition-all duration-200 hover:shadow-md">
             <CardHeader>
               <div className="flex items-center gap-3">

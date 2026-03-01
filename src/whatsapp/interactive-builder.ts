@@ -128,8 +128,8 @@ function buildListPlan(
       .slice(0, LIMITS.MAX_LIST_ROWS - totalRows)
       .map(p => ({
         id: `product:${p.id}`,
-        title: truncate(p.name, LIMITS.LIST_ROW_TITLE),
-        description: truncate(p.price, LIMITS.LIST_ROW_DESCRIPTION),
+        title: smartTruncateProductName(p.name, LIMITS.LIST_ROW_TITLE),
+        description: truncate(`${p.price}`, LIMITS.LIST_ROW_DESCRIPTION),
       }));
 
     if (rows.length > 0) {
@@ -160,4 +160,63 @@ function buildListPlan(
 function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 1) + '…';
+}
+
+/**
+ * Smart product name truncation for WhatsApp list rows (24 char limit).
+ * Instead of cutting mid-word, abbreviates common patterns:
+ * "GYMSHARK X CARLOS BELCAST ZIP UP HOODIE - GS BLACK" → "Carlos Belcast Zip - BK"
+ * "STRAIGHT LEG TRACKSUIT PANT" → "Straight Leg Track Pant"
+ */
+function smartTruncateProductName(name: string, maxLength: number): string {
+  if (name.length <= maxLength) return name;
+
+  // Remove brand prefixes that waste space
+  let shortened = name
+    .replace(/^GYMSHARK\s*X\s*/i, '')
+    .replace(/\s*-\s*GS\s+/i, ' - ')
+    .replace(/\s*-\s*$/, '');
+
+  // Title case for readability
+  shortened = shortened
+    .split(/\s+/)
+    .map(w => {
+      if (w === '-' || w === 'X' || w === '&') return w;
+      if (w.length <= 3) return w.toUpperCase(); // Keep short words like "GS", "XL" uppercase
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(' ');
+
+  if (shortened.length <= maxLength) return shortened;
+
+  // Remove filler words
+  shortened = shortened
+    .replace(/\b(Up|The|And|For|With)\b\s*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (shortened.length <= maxLength) return shortened;
+
+  // Abbreviate common clothing words
+  shortened = shortened
+    .replace(/Hoodie/i, 'Hood')
+    .replace(/Tracksuit/i, 'Track')
+    .replace(/T-shirt/i, 'Tee')
+    .replace(/Sweatshirt/i, 'Sweat')
+    .replace(/Black/i, 'BLK')
+    .replace(/White/i, 'WHT')
+    .replace(/Grey/i, 'GRY')
+    .replace(/Onyx/i, 'ONX');
+
+  if (shortened.length <= maxLength) return shortened;
+
+  // Final fallback: truncate at word boundary
+  const words = shortened.split(' ');
+  let result = '';
+  for (const word of words) {
+    const candidate = result ? `${result} ${word}` : word;
+    if (candidate.length > maxLength - 1) break;
+    result = candidate;
+  }
+  return result || truncate(shortened, maxLength);
 }

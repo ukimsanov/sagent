@@ -494,25 +494,29 @@ export function validateDecision(decision: LLMDecision): {
 }
 
 /**
- * Check if decision requires product images
+ * Check if images should be sent automatically.
+ * No longer depends on LLM — code decides based on action + product data.
+ * Auto-send when: show_products action + products have images.
  */
 export function shouldSendImages(
   decision: LLMDecision,
   products: ProductWithMetadata[]
 ): boolean {
-  if (!decision.send_images) {
-    return false;
-  }
-
+  // Auto-send images when showing products
   if (decision.conversation_action !== 'show_products') {
     return false;
   }
 
-  // Check if any products have images
   const productIds = decision.product_ids || [];
-  const productsToShow = products.filter(p => productIds.includes(p.id));
 
-  return productsToShow.some(p => p.image_urls.length > 0);
+  // If product_ids specified, check those products have images
+  if (productIds.length > 0) {
+    const productsToShow = products.filter(p => productIds.includes(p.id));
+    return productsToShow.some(p => p.image_urls.length > 0);
+  }
+
+  // No product_ids — check if any products have images
+  return products.some(p => p.image_urls.length > 0);
 }
 
 /**
@@ -522,13 +526,17 @@ export function getProductsWithImages(
   decision: LLMDecision,
   products: ProductWithMetadata[]
 ): ProductWithMetadata[] {
-  if (!decision.product_ids) {
-    return [];
+  const productIds = decision.product_ids || [];
+
+  // If product_ids specified, use those
+  if (productIds.length > 0) {
+    return products.filter(
+      p => productIds.includes(p.id) && p.image_urls.length > 0
+    );
   }
 
-  return products.filter(
-    p => decision.product_ids!.includes(p.id) && p.image_urls.length > 0
-  );
+  // No product_ids — return all products with images (max 3 to avoid spam)
+  return products.filter(p => p.image_urls.length > 0).slice(0, 3);
 }
 
 // ============================================================================

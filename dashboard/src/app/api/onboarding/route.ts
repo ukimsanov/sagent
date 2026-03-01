@@ -6,6 +6,7 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 interface OnboardingBody {
   name: string;
   timezone?: string;
+  whatsapp_phone_id?: string;
   brand_tone?: string;
   greeting_template?: string;
 }
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
       .bind(
         businessId,
         body.name.trim(),
-        "", // whatsapp_phone_id — configured separately
+        body.whatsapp_phone_id?.trim() || "",
         body.brand_tone || "friendly",
         body.greeting_template || null,
         body.timezone || "UTC",

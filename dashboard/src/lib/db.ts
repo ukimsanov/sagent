@@ -99,6 +99,20 @@ export interface Product {
 export interface ProductWithImages extends Omit<Product, 'image_url'> {
   image_url: string | null;
   image_urls: string[];
+  variants: ProductVariant[];
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  size: string | null;
+  color: string | null;
+  sku: string | null;
+  stock_quantity: number;
+  price_override: number | null;
+  position: number;
+  created_at: number;
+  updated_at: number;
 }
 
 /**
@@ -595,7 +609,105 @@ function toProductWithImages(product: Product): ProductWithImages {
   return {
     ...product,
     image_urls: parseImageUrls(product.image_url),
+    variants: [],
   };
+}
+
+/**
+ * Get variants for a product
+ */
+export async function getVariantsForProduct(
+  db: D1Database,
+  productId: string
+): Promise<ProductVariant[]> {
+  const result = await db
+    .prepare('SELECT * FROM product_variants WHERE product_id = ? ORDER BY position ASC, size ASC')
+    .bind(productId)
+    .all<ProductVariant>();
+  return result.results || [];
+}
+
+/**
+ * Get variants for multiple products (batch)
+ */
+async function getVariantsForProducts(
+  db: D1Database,
+  productIds: string[]
+): Promise<Map<string, ProductVariant[]>> {
+  if (productIds.length === 0) return new Map();
+
+  const placeholders = productIds.map(() => '?').join(',');
+  const result = await db
+    .prepare(`SELECT * FROM product_variants WHERE product_id IN (${placeholders}) ORDER BY position ASC, size ASC`)
+    .bind(...productIds)
+    .all<ProductVariant>();
+
+  const variantMap = new Map<string, ProductVariant[]>();
+  for (const v of result.results || []) {
+    const existing = variantMap.get(v.product_id) || [];
+    existing.push(v);
+    variantMap.set(v.product_id, existing);
+  }
+  return variantMap;
+}
+
+/**
+ * Attach variants to an array of products
+ */
+async function attachVariants(
+  db: D1Database,
+  products: ProductWithImages[]
+): Promise<ProductWithImages[]> {
+  if (products.length === 0) return products;
+  const variantMap = await getVariantsForProducts(db, products.map(p => p.id));
+  return products.map(p => ({ ...p, variants: variantMap.get(p.id) || [] }));
+}
+
+/**
+ * Save variants for a product (replaces all existing variants)
+ */
+export async function saveProductVariants(
+  db: D1Database,
+  productId: string,
+  variants: Array<{
+    size?: string | null;
+    color?: string | null;
+    sku?: string | null;
+    stock_quantity?: number;
+    price_override?: number | null;
+  }>
+): Promise<void> {
+  // Delete existing variants
+  await db
+    .prepare('DELETE FROM product_variants WHERE product_id = ?')
+    .bind(productId)
+    .run();
+
+  // Insert new variants
+  for (let i = 0; i < variants.length; i++) {
+    const v = variants[i];
+    const id = `var-${Date.now()}-${Math.random().toString(36).slice(2, 9)}-${i}`;
+    const now = Math.floor(Date.now() / 1000);
+
+    await db
+      .prepare(`
+        INSERT INTO product_variants (id, product_id, size, color, sku, stock_quantity, price_override, position, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .bind(
+        id,
+        productId,
+        v.size ?? null,
+        v.color ?? null,
+        v.sku ?? null,
+        v.stock_quantity ?? 0,
+        v.price_override ?? null,
+        i,
+        now,
+        now
+      )
+      .run();
+  }
 }
 
 /**
@@ -650,8 +762,11 @@ export async function getProducts(
     .bind(...params, limit, offset)
     .all<Product>();
 
+  const products = (result.results || []).map(toProductWithImages);
+  const productsWithVariants = await attachVariants(db, products);
+
   return {
-    products: (result.results || []).map(toProductWithImages),
+    products: productsWithVariants,
     total: countResult?.count || 0,
   };
 }
@@ -668,7 +783,11 @@ export async function getProductById(
     .bind(productId)
     .first<Product>();
 
-  return result ? toProductWithImages(result) : null;
+  if (!result) return null;
+
+  const product = toProductWithImages(result);
+  product.variants = await getVariantsForProduct(db, productId);
+  return product;
 }
 
 /**
@@ -750,6 +869,7 @@ export async function createProduct(
     metadata: product.metadata ?? null,
     image_url: imageUrl,
     image_urls: product.image_urls ?? [],
+    variants: [],
     created_at: now,
     updated_at: now,
   };

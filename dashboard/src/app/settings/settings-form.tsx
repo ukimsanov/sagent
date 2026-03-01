@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Check, Loader2 } from "lucide-react";
 
-type Section = "status" | "brand" | "handoff" | "hours" | "digest" | "followup";
+type Section = "whatsapp" | "status" | "brand" | "handoff" | "hours" | "digest" | "followup";
 
 const GREETING_MAX_LENGTH = 300;
 const AFTER_HOURS_MAX_LENGTH = 500;
@@ -56,6 +56,41 @@ export function SettingsForm({ section, initialData }: SettingsFormProps) {
       setSaving(false);
     }
   };
+
+  if (section === "whatsapp") {
+    return (
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="*:not-first:mt-2">
+          <Label htmlFor="whatsapp_phone_id">Phone Number ID</Label>
+          <Input
+            id="whatsapp_phone_id"
+            placeholder="e.g., 123456789012345"
+            value={data.whatsapp_phone_id as string}
+            onChange={(e) => handleChange("whatsapp_phone_id", e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Found in Meta Developer Dashboard &rarr; WhatsApp &rarr; API Setup. This connects your WhatsApp Business number to the AI agent.
+          </p>
+        </div>
+
+        <Button type="submit" disabled={saving}>
+          {saving ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Saving...
+            </>
+          ) : saved ? (
+            <>
+              <Check className="mr-2 h-4 w-4" />
+              Saved
+            </>
+          ) : (
+            "Save Changes"
+          )}
+        </Button>
+      </form>
+    );
+  }
 
   if (section === "status") {
     const handleToggle = async (checked: boolean) => {

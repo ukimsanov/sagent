@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDB, getProducts, createProduct, getCategories } from "@/lib/db";
+import { getDB, getProducts, createProduct, getCategories, saveProductVariants } from "@/lib/db";
 import { requireBusinessId } from "@/lib/auth-utils";
 import { withAuth } from "@workos-inc/authkit-nextjs";
+import { triggerEmbeddingsBackground } from "@/lib/worker-proxy";
 
 /**
  * GET /api/products
@@ -76,6 +77,13 @@ export async function POST(request: NextRequest) {
       stock_quantity?: number | string;
       metadata?: Record<string, unknown>;
       image_urls?: string[];
+      variants?: Array<{
+        size?: string | null;
+        color?: string | null;
+        sku?: string | null;
+        stock_quantity?: number;
+        price_override?: number | null;
+      }>;
     };
 
     // Validate required fields
@@ -98,6 +106,26 @@ export async function POST(request: NextRequest) {
       metadata: body.metadata ? JSON.stringify(body.metadata) : null,
       image_urls: body.image_urls || [],
     });
+
+    // Save variants if provided
+    if (body.variants && body.variants.length > 0) {
+      await saveProductVariants(db, product.id, body.variants);
+      product.variants = body.variants.map((v, i) => ({
+        id: `var-temp-${i}`,
+        product_id: product.id,
+        size: v.size ?? null,
+        color: v.color ?? null,
+        sku: v.sku ?? null,
+        stock_quantity: v.stock_quantity ?? 0,
+        price_override: v.price_override ?? null,
+        position: i,
+        created_at: Math.floor(Date.now() / 1000),
+        updated_at: Math.floor(Date.now() / 1000),
+      }));
+    }
+
+    // Trigger embedding regeneration in background (non-blocking)
+    triggerEmbeddingsBackground(businessId);
 
     return NextResponse.json({ product }, { status: 201 });
   } catch (error) {

@@ -73,6 +73,20 @@ export interface ProductWithMetadata extends Omit<Product, 'metadata' | 'image_u
   metadata: Record<string, unknown> | null;
   image_url: string | null; // Raw field (JSON array string)
   image_urls: string[]; // Parsed array of image URLs
+  variants: ProductVariant[]; // Loaded variants (empty if not fetched)
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  size: string | null;
+  color: string | null;
+  sku: string | null;
+  stock_quantity: number;
+  price_override: number | null;
+  position: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface Lead {
@@ -201,7 +215,8 @@ export async function searchProducts(
     .bind(...params)
     .all<Product>();
 
-  return (result.results || []).map(parseProductMetadata);
+  const products = (result.results || []).map(parseProductMetadata);
+  return attachVariantsToProducts(db, products);
 }
 
 export async function getProductById(
@@ -213,7 +228,11 @@ export async function getProductById(
     .bind(productId)
     .first<Product>();
 
-  return result ? parseProductMetadata(result) : null;
+  if (!result) return null;
+
+  const product = parseProductMetadata(result);
+  product.variants = await getVariantsForProduct(db, productId);
+  return product;
 }
 
 export async function getProductsByCategory(
@@ -226,7 +245,8 @@ export async function getProductsByCategory(
     .bind(businessId, category.toLowerCase())
     .all<Product>();
 
-  return (result.results || []).map(parseProductMetadata);
+  const products = (result.results || []).map(parseProductMetadata);
+  return attachVariantsToProducts(db, products);
 }
 
 /**
@@ -268,10 +288,12 @@ export async function getProductsByIds(
     productMap.set(product.id, product);
   }
 
-  return productIds
+  const products = productIds
     .map((id) => productMap.get(id))
     .filter((p): p is Product => p !== undefined)
     .map(parseProductMetadata);
+
+  return attachVariantsToProducts(db, products);
 }
 
 export async function checkProductAvailability(
@@ -342,8 +364,71 @@ function parseProductMetadata(product: Product): ProductWithMetadata {
   return {
     ...product,
     metadata: product.metadata ? JSON.parse(product.metadata) : null,
-    image_urls: parseImageUrls(product.image_url)
+    image_urls: parseImageUrls(product.image_url),
+    variants: [], // loaded separately via getVariantsForProduct
   };
+}
+
+// ============================================================================
+// Product Variant Queries
+// ============================================================================
+
+/**
+ * Get all variants for a product, ordered by position
+ */
+export async function getVariantsForProduct(
+  db: D1Database,
+  productId: string
+): Promise<ProductVariant[]> {
+  const result = await db
+    .prepare('SELECT * FROM product_variants WHERE product_id = ? ORDER BY position ASC, size ASC')
+    .bind(productId)
+    .all<ProductVariant>();
+  return result.results || [];
+}
+
+/**
+ * Get variants for multiple products (batch fetch)
+ */
+export async function getVariantsForProducts(
+  db: D1Database,
+  productIds: string[]
+): Promise<Map<string, ProductVariant[]>> {
+  if (productIds.length === 0) return new Map();
+
+  const placeholders = productIds.map(() => '?').join(',');
+  const result = await db
+    .prepare(`SELECT * FROM product_variants WHERE product_id IN (${placeholders}) ORDER BY position ASC, size ASC`)
+    .bind(...productIds)
+    .all<ProductVariant>();
+
+  const variantMap = new Map<string, ProductVariant[]>();
+  for (const variant of result.results || []) {
+    const existing = variantMap.get(variant.product_id) || [];
+    existing.push(variant);
+    variantMap.set(variant.product_id, existing);
+  }
+  return variantMap;
+}
+
+/**
+ * Load products with their variants attached
+ */
+export async function attachVariantsToProducts(
+  db: D1Database,
+  products: ProductWithMetadata[]
+): Promise<ProductWithMetadata[]> {
+  if (products.length === 0) return products;
+
+  const variantMap = await getVariantsForProducts(
+    db,
+    products.map(p => p.id)
+  );
+
+  return products.map(p => ({
+    ...p,
+    variants: variantMap.get(p.id) || [],
+  }));
 }
 
 /**

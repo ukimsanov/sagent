@@ -50,3 +50,44 @@ export async function sendWhatsAppMessage(
     error?: string;
   }>;
 }
+
+/**
+ * Trigger product embedding regeneration for a business.
+ * Calls the Worker's /admin/embed/business endpoint which regenerates
+ * all product vectors in Cloudflare Vectorize for semantic search.
+ */
+export async function triggerEmbeddings(
+  businessId: string,
+): Promise<{ success: boolean; embedded?: number; error?: string }> {
+  const { workerUrl, adminSecret } = await getWorkerConfig();
+
+  const response = await fetch(`${workerUrl}/admin/embed/business`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${adminSecret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ business_id: businessId }),
+  });
+
+  return response.json() as Promise<{
+    success: boolean;
+    embedded?: number;
+    error?: string;
+  }>;
+}
+
+/**
+ * Fire-and-forget embedding trigger.
+ * Used after product mutations to keep the search index fresh.
+ * Failures are logged but never block the caller.
+ */
+export async function triggerEmbeddingsBackground(
+  businessId: string,
+): Promise<void> {
+  try {
+    await triggerEmbeddings(businessId);
+  } catch (err) {
+    console.error("Background embedding trigger failed:", err);
+  }
+}

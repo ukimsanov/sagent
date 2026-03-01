@@ -408,28 +408,29 @@ async function handleImageServe(url: URL, env: Env): Promise<Response> {
 
 /**
  * Resolve an image URL to an absolute URL that WhatsApp can fetch.
- * - Dashboard-relative URLs (/api/images/...) → worker /images/ route
- * - Already absolute URLs → pass through unchanged
+ * Images are stored in R2 via the dashboard, so we route through the dashboard's
+ * /api/images/ endpoint which has direct R2 access.
  */
-function resolveImageUrl(url: string, workerBaseUrl: string): string {
+function resolveImageUrl(url: string, _workerBaseUrl: string): string {
+  const dashboardBaseUrl = 'https://dashboard.ularkimsanov.com';
+
   // Already absolute
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }
 
-  // Dashboard-relative URL: /api/images/businessId/filename.ext → /images/businessId/filename.ext
+  // Dashboard-relative URL: /api/images/businessId/filename.ext → keep as dashboard URL
   if (url.startsWith('/api/images/')) {
-    const r2Path = url.replace('/api/images/', '');
-    return `${workerBaseUrl}/images/${r2Path}`;
+    return `${dashboardBaseUrl}${url}`;
   }
 
-  // Other relative paths — assume they're R2 keys
+  // Other relative paths — route through dashboard's image endpoint
   if (url.startsWith('/')) {
-    return `${workerBaseUrl}${url}`;
+    return `${dashboardBaseUrl}/api/images${url}`;
   }
 
   // Bare R2 key
-  return `${workerBaseUrl}/images/${url}`;
+  return `${dashboardBaseUrl}/api/images/${url}`;
 }
 
 // ============================================================================
