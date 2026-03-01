@@ -1,45 +1,31 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# Dependencies
 /node_modules
-/.pnp
-.pnp.js
-.yarn/install-state.gz
 
-# testing
-/coverage
-
-# next.js
+# Build
 /.next/
+/.open-next/
 /out/
-
-# production
 /build
 
-# misc
+# Wrangler / Cloudflare
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+
+# Environment
+.env*.local
+!.env.local.example
+
+# Auto-generated
+cloudflare-env.d.ts
+next-env.d.ts
+*.tsbuildinfo
+
+# OS
 .DS_Store
 *.pem
 
-# debug
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# local env files
-.env*.local
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# OpenNext
-/.open-next
-
-# wrangler files
-.wrangler
-.dev.vars*
-!.dev.vars.example
-!.env.example

@@ -1,68 +1,59 @@
 # WhatsApp AI Sales Agent
 
-> Multi-tenant conversational commerce platform that turns WhatsApp into an intelligent sales channel using LLM-powered decision making and semantic product search.
+> Multi-tenant conversational commerce platform that turns WhatsApp into an intelligent sales channel. AI-powered product discovery, lead scoring, and human handoff — all on Cloudflare's edge.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare)](https://workers.cloudflare.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-gpt--4o--mini-412991?logo=openai)](https://openai.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--5--mini-412991?logo=openai)](https://openai.com/)
 
 ---
 
-## Highlights
+## What It Does
 
-- **LLM Decision Engine** - GPT-4o-mini with structured JSON output for predictable, auditable conversation decisions
-- **Semantic Product Search** - Cloudflare Vectorize + bge-base-en-v1.5 embeddings for natural language queries
-- **Atomic Conversation State** - Durable Objects prevent race conditions in concurrent message handling
-- **Multi-tenant B2B Architecture** - Per-business configuration, data isolation, and analytics
-- **WhatsApp 2026 Compliant** - Structured business bot for sales/support (not general-purpose AI)
+A B2B platform where businesses connect their WhatsApp number and get an AI sales assistant that:
+
+- **Finds products** — customers say "show me hoodies under $100" and get real results from the catalog
+- **Sounds human** — adapts to each brand's tone (casual, friendly, professional) with natural texting style
+- **Sends product images** — automatically attaches product photos when showing items
+- **Scores leads** — tracks engagement and surfaces hot leads ready to buy
+- **Hands off gracefully** — escalates to humans when the AI can't help, with full conversation context
+- **Provides analytics** — dashboard with conversation insights, sentiment tracking, and lead funnel
 
 ---
 
 ## Architecture
 
 ```
-                                    WhatsApp Cloud API
-                                           │
-                                           ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Cloudflare Workers (Edge)                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐    │
-│  │   Webhook Handler │────▶│   Fast-Path Check │────▶│   LLM Decision   │    │
-│  │   (Deduplication) │     │   (No LLM needed) │     │   Engine (GPT-4o)│    │
-│  └──────────────────┘     └──────────────────┘     └──────────────────┘    │
-│           │                        │                        │               │
-│           │                        │                        ▼               │
-│           │                        │              ┌──────────────────┐      │
-│           │                        │              │  Code Executor   │      │
-│           │                        │              │  (Policy Gates)  │      │
-│           │                        │              └──────────────────┘      │
-│           │                        │                        │               │
-│           ▼                        ▼                        ▼               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                        Response Assembly                             │   │
-│  │              (Text + Product Images + Lead Scoring)                  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-        │                    │                    │                    │
-        ▼                    ▼                    ▼                    ▼
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│  Cloudflare  │    │  Cloudflare  │    │  Cloudflare  │    │  Cloudflare  │
-│     D1       │    │   Vectorize  │    │    Durable   │    │      R2      │
-│  (Database)  │    │  (Embeddings)│    │   Objects    │    │   (Images)   │
-└──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘
+WhatsApp Cloud API
+       │
+       ▼
+┌─────────────────────────────────────────────────────────┐
+│              Cloudflare Workers (Edge)                    │
+│                                                          │
+│  Webhook ──▶ Semantic Search ──▶ LLM Decision ──▶ Send  │
+│    │          (Vectorize)      (GPT-5-mini)       │      │
+│    │                               │              │      │
+│    │                          Code Executor       │      │
+│    │                        (Policy Gates)        │      │
+│    ▼                               ▼              ▼      │
+│  Durable Objects          Business Actions    WhatsApp   │
+│  (Conversation State)     (Lead Scoring)      Response   │
+└──────────┬──────────┬──────────┬──────────┬──────────────┘
+           │          │          │          │
+     ┌─────▼──┐ ┌─────▼──┐ ┌────▼───┐ ┌───▼────┐
+     │   D1   │ │Vectorize│ │   KV   │ │   R2   │
+     │  (DB)  │ │(Search) │ │(Cache) │ │(Images)│
+     └────────┘ └────────┘ └────────┘ └────────┘
 ```
 
-### Core Pattern: "LLM as Decision Engine, Code as Executor"
+**Core pattern: "LLM as Decision Engine, Code as Executor"**
 
-1. **Fast-path** - Greetings, farewells, vague requests handled without LLM (cost-efficient)
-2. **Semantic Search** - Natural language queries matched to products via vector embeddings
-3. **LLM Decision** - GPT-4o-mini returns structured JSON with action + message + product IDs
-4. **Code Execution** - Business logic validates and executes decisions with policy gates
-5. **Fallback Ladder** - Deterministic responses when LLM fails or times out
+1. **Webhook** receives WhatsApp message, deduplicates via KV, loads conversation state from Durable Object
+2. **Semantic Search** matches natural language queries to products using Vectorize embeddings
+3. **LLM Decision** — GPT-5-mini returns structured JSON (action, message, product IDs, sentiment)
+4. **Code Executor** validates the decision, enforces policy gates, auto-attaches product images
+5. **Fallback** — deterministic handoff to human if LLM fails or times out
 
 ---
 
@@ -70,53 +61,71 @@
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Runtime** | Cloudflare Workers | Edge computing, <5s global response |
-| **Database** | Cloudflare D1 (SQLite) | Multi-tenant data storage |
-| **Vector Search** | Cloudflare Vectorize | Semantic product embeddings |
-| **Embeddings** | Workers AI (bge-base-en-v1.5) | 768-dimensional vectors |
-| **LLM** | OpenAI GPT-4o-mini | Structured conversation decisions |
-| **State** | Cloudflare Durable Objects | Atomic conversation management |
-| **Cache** | Cloudflare KV | Deduplication, rate limiting |
-| **Storage** | Cloudflare R2 | Product image hosting |
-| **Frontend** | Next.js 15 + React 19 | Admin dashboard |
-| **UI** | Radix UI + TailwindCSS v4 | Component library |
-| **Auth** | WorkOS AuthKit | B2B authentication |
-| **Email** | Resend API | Handoff notifications |
+| **Runtime** | Cloudflare Workers | Edge compute, <5s global response |
+| **Database** | Cloudflare D1 (SQLite) | Multi-tenant data, 14 tables |
+| **Vector Search** | Cloudflare Vectorize | Semantic product embeddings (768-dim) |
+| **Embeddings** | Workers AI (bge-base-en-v1.5) | Text → vector conversion |
+| **LLM** | GPT-5-mini via Vercel AI SDK | Structured output with Zod schema validation |
+| **Conversation State** | Cloudflare Durable Objects | Atomic message ordering, race condition prevention |
+| **Cache** | Cloudflare KV | Webhook deduplication, rate limiting |
+| **Image Storage** | Cloudflare R2 | Product image hosting |
+| **Dashboard** | Next.js 15 + React 19 | Admin UI on Cloudflare Pages |
+| **UI Components** | Radix UI + Tailwind CSS v4 | shadcn/ui component system |
+| **Auth** | WorkOS AuthKit | B2B SSO authentication |
+| **Email** | Resend API | Handoff notifications, daily/weekly digests |
 
 ---
 
 ## Features
 
-### Conversational AI
-- **Semantic product search** - "show me something warm" finds hoodies and sweaters
-- **Natural language understanding** - Handles variations like "got any jeans?" or "looking for pants"
-- **Clarification detection** - Asks smart follow-ups for vague requests
-- **Escalation keywords** - Immediate handoff on "refund", "lawyer", "scam", etc.
-- **Clarification loop prevention** - Auto-handoff after 3 consecutive clarifications
+### AI Agent (Worker)
+- **Semantic product search** — "something warm for winter" matches hoodies and sweaters
+- **Structured LLM output** — Zod schema ensures type-safe, validated AI decisions
+- **Auto image sending** — product photos sent automatically when showing items
+- **3-tier business actions** — safe actions auto-execute, risky ones force human handoff
+- **Clarification loop detection** — auto-handoff after 3 consecutive clarifying questions
+- **Prompt injection protection** — input sanitization before LLM processing
+- **PII masking** — phone numbers and emails redacted from logs
+- **Dead letter queue** — failed operations captured for retry
 
 ### Lead Management
-- **5-stage sales funnel** - new → engaged → warm → hot → converted
-- **Automatic scoring** - Points for product views, size requests, purchase intent
-- **Lead status tracking** - Progression based on engagement depth
-- **Conversation summaries** - AI-generated context for long-term memory
+- **5-stage funnel** — new → engaged → warm → hot → converted
+- **Automatic scoring** — points for product views, size requests, purchase intent
+- **Sentiment tracking** — positive, neutral, negative, frustrated (extracted by LLM)
+- **Conversation summaries** — AI-generated context preserved across sessions
+- **Smart follow-ups** — automated re-engagement for idle warm/hot leads
+
+### Dashboard (10+ pages)
+- **Analytics overview** — message volume, response time, intent breakdown, sentiment, lead funnel, peak hours
+- **Conversations** — browse threads, view messages, reply directly via WhatsApp
+- **Leads** — sortable/filterable lead table with scores, status, contact history
+- **Products** — CRUD with image upload, variant management (size/color/stock), CSV import/export
+- **Escalations** — open/resolved queue with urgency levels and resolve actions
+- **Activity feed** — filterable event log with action types and sentiment badges
+- **Follow-ups** — tracking page for automated follow-up messages
+- **System health** — DLQ viewer with resolve actions
+- **FAQs** — auto-generated FAQ management (approve/reject/edit)
+- **Settings** — brand tone, escalation keywords, working hours, AI toggle, WhatsApp connection
+- **Promo codes** — discount code management
 
 ### Multi-tenant B2B
-- **Per-business configuration** - Brand tone, escalation keywords, working hours
-- **Data isolation** - All queries scoped by business ID
-- **Custom greetings** - Personalized opening messages per business
-- **After-hours handling** - Custom messages outside business hours
+- **Per-business config** — brand tone, escalation keywords, working hours, greeting templates
+- **Data isolation** — all queries scoped by business ID
+- **Onboarding wizard** — guided setup for new businesses
+- **WorkOS SSO** — enterprise authentication with role-based access
 
 ### Reliability
-- **Idempotent webhooks** - KV deduplication prevents duplicate processing
-- **Rate limiting** - Per-phone throttling prevents abuse
-- **Dead letter queue** - Failed operations logged for retry/debugging
-- **Atomic state** - Durable Objects prevent race conditions
+- **Idempotent webhooks** — KV deduplication prevents double-processing
+- **Rate limiting** — per-phone throttling prevents abuse
+- **Dead letter queue** — failed operations logged with retry support
+- **Atomic state** — Durable Objects prevent conversation race conditions
+- **Graceful fallback** — always responds even when LLM fails
 
-### Dashboard
-- **Conversations view** - Browse all customer conversations
-- **Lead analytics** - Score distribution, status breakdown
-- **Product catalog** - CRUD operations with image upload
-- **Settings** - Brand configuration, AI toggle, escalation rules
+### Background Jobs (Cron)
+- **Daily digest** — email summary of conversations, leads, and escalations
+- **Weekly digest** — weekly performance report
+- **Smart follow-ups** — re-engage idle leads with personalized messages
+- **Auto-FAQ generation** — identify common questions and generate answers
 
 ---
 
@@ -124,45 +133,45 @@
 
 ```
 whatsapp-ai-agent/
-├── src/
-│   ├── index.ts              # Worker entry point (webhook, admin, cron)
+├── src/                          # Cloudflare Worker
+│   ├── index.ts                  # Entry point (webhook, admin routes, cron)
 │   ├── ai/
-│   │   ├── handler.ts        # LLM decision engine (718 lines)
-│   │   ├── llm.ts            # OpenAI API with structured output
-│   │   ├── prompts.ts        # System prompts for sales mindset
-│   │   ├── executor.ts       # Decision execution with policy gates
-│   │   ├── environment.ts    # Context snapshot builder
-│   │   ├── embeddings.ts     # Vectorize semantic search
-│   │   └── intents.ts        # Rule-based intent classification
+│   │   ├── handler.ts            # Message processing pipeline
+│   │   ├── llm.ts                # GPT-5-mini with Zod structured output
+│   │   ├── prompts.ts            # System prompt + environment builder
+│   │   ├── executor.ts           # Decision execution + policy gates
+│   │   ├── environment.ts        # Context snapshot for LLM
+│   │   ├── embeddings.ts         # Vectorize semantic search
+│   │   ├── faq-generator.ts      # Auto-FAQ from conversation patterns
+│   │   └── intents.ts            # Search query detection
 │   ├── db/
-│   │   ├── queries.ts        # All D1 database operations
-│   │   ├── schema.sql        # Database schema (12 tables)
-│   │   ├── seed.sql          # Demo data
-│   │   └── migrations/       # Schema migrations
+│   │   ├── queries.ts            # All D1 operations (50+ functions)
+│   │   ├── schema.sql            # 14-table schema
+│   │   ├── migrations/           # Schema migrations
+│   │   └── dead-letter.ts        # DLQ operations
 │   ├── durable-objects/
-│   │   └── ConversationDO.ts # Atomic conversation state
+│   │   └── ConversationDO.ts     # Atomic conversation state
 │   ├── whatsapp/
-│   │   ├── messages.ts       # WhatsApp API integration
-│   │   └── webhook.ts        # Webhook verification
+│   │   ├── messages.ts           # WhatsApp Cloud API integration
+│   │   ├── interactive-builder.ts # Buttons, lists, smart truncation
+│   │   └── webhook.ts            # Webhook verification
 │   ├── notifications/
-│   │   └── handoff.ts        # Email notifications (Resend)
+│   │   ├── handoff.ts            # Escalation emails (Resend)
+│   │   ├── digest.ts             # Daily/weekly email digests
+│   │   └── follow-up.ts          # Smart follow-up messages
 │   └── utils/
-│       ├── sanitize.ts       # Prompt injection protection
-│       ├── pii-masking.ts    # Privacy-safe logging
-│       ├── rate-limiter.ts   # Per-phone rate limiting
-│       └── lead-scoring.ts   # Score calculations
-├── dashboard/                 # Next.js admin dashboard
-│   ├── src/app/
-│   │   ├── conversations/    # Conversation browser
-│   │   ├── leads/            # Lead management
-│   │   ├── products/         # Product catalog CRUD
-│   │   └── settings/         # Business configuration
-│   └── wrangler.jsonc        # Cloudflare Pages config
-├── test/                      # Vitest tests
-├── wrangler.jsonc            # Worker configuration
-├── ARCHITECTURE.md           # System design documentation
-├── CURRENT_STATE.md          # Progress tracking
-└── TESTING.md                # Testing guide
+│       ├── sanitize.ts           # Prompt injection protection
+│       ├── pii-masking.ts        # Privacy-safe logging
+│       ├── rate-limiter.ts       # Per-phone rate limiting
+│       ├── lead-scoring.ts       # Score calculations
+│       └── retry.ts              # Retry with backoff
+├── dashboard/                     # Next.js 15 Admin Dashboard
+│   ├── src/app/                   # 10+ pages (conversations, leads, products, etc.)
+│   ├── src/components/            # Reusable UI components (shadcn/ui)
+│   ├── src/lib/                   # DB queries, utils, worker proxy
+│   └── wrangler.jsonc             # Cloudflare Pages config
+├── test/                          # Vitest tests
+└── wrangler.jsonc                 # Worker config (D1, KV, R2, Vectorize, DO)
 ```
 
 ---
@@ -171,30 +180,28 @@ whatsapp-ai-agent/
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+
+- Node.js 18+
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) 4.x
-- Cloudflare account with Workers, D1, Vectorize, Durable Objects, R2
+- Cloudflare account (Workers, D1, Vectorize, Durable Objects, R2, KV)
 - OpenAI API key
-- WhatsApp Business API credentials
-- WorkOS account (for dashboard auth)
+- WhatsApp Business API credentials (Meta Business Suite)
+- WorkOS account (dashboard auth)
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
+git clone https://github.com/ukimsanov/whatsapp-ai-agent.git
 cd whatsapp-ai-agent
 
-# Install dependencies
+# Install worker dependencies
 npm install
 
 # Install dashboard dependencies
 cd dashboard && npm install && cd ..
 ```
 
-### Configuration
+### Cloudflare Resources
 
-1. **Set up Cloudflare resources:**
 ```bash
 # Create D1 database
 npx wrangler d1 create whatsapp-ai-agent-db
@@ -209,40 +216,44 @@ npx wrangler r2 bucket create product-images
 npx wrangler vectorize create product-embeddings --dimensions=768 --metric=cosine
 ```
 
-2. **Configure secrets:**
+### Secrets
+
 ```bash
+# Worker secrets
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put WHATSAPP_ACCESS_TOKEN
 npx wrangler secret put WHATSAPP_APP_SECRET
 npx wrangler secret put CLEANUP_SECRET
-npx wrangler secret put RESEND_API_KEY  # Optional
+npx wrangler secret put RESEND_API_KEY
+
+# Dashboard secrets
+cd dashboard
+npx wrangler secret put WORKER_ADMIN_SECRET
+npx wrangler secret put WORKOS_CLIENT_ID
+npx wrangler secret put WORKOS_API_KEY
+npx wrangler secret put WORKOS_COOKIE_PASSWORD
 ```
 
-3. **Update wrangler.jsonc** with your resource IDs
+### Database Setup
 
-4. **Initialize database:**
 ```bash
 npx wrangler d1 execute whatsapp-ai-agent-db --remote --file=src/db/schema.sql
-npx wrangler d1 execute whatsapp-ai-agent-db --remote --file=src/db/seed.sql
+
+# Run migrations
+for f in src/db/migrations/*.sql; do
+  npx wrangler d1 execute whatsapp-ai-agent-db --remote --file="$f"
+done
 ```
 
-### Deployment
+### Deploy
 
 ```bash
-# Deploy worker
-npm run deploy
+# Worker
+npx wrangler deploy
 
-# Deploy dashboard
-cd dashboard && npm run deploy
-```
-
-### Embed Products for Semantic Search
-
-```bash
-curl -X POST "https://your-worker.workers.dev/admin/embed/business" \
-  -H "Authorization: Bearer YOUR_CLEANUP_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"business_id":"your-business-id"}'
+# Dashboard
+cd dashboard
+npx opennextjs-cloudflare build && npx wrangler deploy
 ```
 
 ---
@@ -255,95 +266,51 @@ curl -X POST "https://your-worker.workers.dev/admin/embed/business" \
 | `GET` | `/webhook` | WhatsApp webhook verification |
 | `POST` | `/webhook` | Incoming message processing |
 
-### Admin (Requires Bearer token)
+### Admin (Bearer token required)
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/admin/embed/business` | Embed all products for a business |
-| `GET` | `/admin/embed/status` | Check embedding status |
+| `POST` | `/admin/embed/business` | Embed products for semantic search |
+| `GET` | `/admin/embed/status` | Embedding status |
 | `POST` | `/admin/embed/test-search` | Test semantic search |
-| `POST` | `/admin/embed/test-message` | Test message handling (bypasses WhatsApp) |
-| `GET` | `/admin/dlq/stats` | Dead letter queue statistics |
-| `GET` | `/admin/dlq/entries` | List unresolved DLQ entries |
+| `POST` | `/admin/embed/test-message` | Test message handling |
+| `GET` | `/admin/dlq/stats` | Dead letter queue stats |
+| `GET` | `/admin/dlq/entries` | List DLQ entries |
 | `POST` | `/admin/dlq/resolve` | Resolve DLQ entry |
+| `POST` | `/admin/send-message` | Send WhatsApp message from dashboard |
 
-### Utilities
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/cleanup` | Clean up test data |
-
----
-
-## Testing
-
-See [TESTING.md](TESTING.md) for comprehensive testing guide.
-
-```bash
-# Run unit tests
-npm test
-
-# Test message handling (bypasses WhatsApp)
-curl -X POST "https://your-worker.workers.dev/admin/embed/test-message" \
-  -H "Authorization: Bearer YOUR_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"business_id":"demo-store-001","from":"test-001","text":"show me hoodies"}'
-
-# Tail logs
-npx wrangler tail whatsapp-ai-agent --format=pretty
-```
+### Cron Schedules
+| Schedule | Job |
+|----------|-----|
+| `0 3 * * *` | FAQ generation |
+| `0 8 * * *` | Daily digest + follow-ups |
+| `0 9 * * 1` | Weekly digest |
+| `0 */4 * * *` | Follow-up checks |
 
 ---
 
 ## Database Schema
 
-### Core Tables
-- **businesses** - Multi-tenant configuration (brand tone, escalation keywords, hours)
-- **products** - Catalog with pricing, inventory, metadata, images
-- **leads** - Customer profiles with scores and status tracking
-- **conversation_summaries** - AI-generated context for long-term memory
-- **message_events** - Analytics and audit log
-- **human_flags** - Escalation tracking
-- **dead_letter_queue** - Failed operation recovery
+14 tables covering the full platform:
 
----
-
-## Environment Variables
-
-```bash
-# Required
-OPENAI_API_KEY=sk-...
-WHATSAPP_ACCESS_TOKEN=EAA...
-WHATSAPP_VERIFY_TOKEN=...
-CLEANUP_SECRET=...
-
-# Optional
-WHATSAPP_APP_SECRET=...      # Webhook signature validation
-RESEND_API_KEY=re_...        # Email notifications
-```
-
----
-
-## WhatsApp 2026 Policy Compliance
-
-This project is **fully compliant** with Meta's January 2026 policy update. The ban affects general-purpose AI assistants (ChatGPT, Copilot on WhatsApp), not structured business bots for sales and support.
-
-**Allowed use cases (this project):**
-- Product search and recommendations
-- Order tracking and support
-- Lead qualification
-- Sales automation
+| Table | Purpose |
+|-------|---------|
+| `businesses` | Multi-tenant config (tone, keywords, hours, AI settings) |
+| `products` | Catalog with pricing, inventory, metadata, images |
+| `product_variants` | Size/color/SKU combinations with per-variant stock |
+| `leads` | Customer profiles with scores (0-100) and funnel status |
+| `conversation_summaries` | AI-generated context for long-term memory |
+| `message_events` | Analytics and audit log (action, sentiment, timing) |
+| `human_flags` | Escalation queue with urgency levels |
+| `dead_letter_queue` | Failed operation recovery |
+| `follow_ups` | Smart follow-up message tracking |
+| `auto_faqs` | Auto-generated FAQ management |
+| `appointments` | Booking requests |
+| `callback_requests` | Customer callback tracking |
+| `promo_codes` | Discount code pool |
+| `user_businesses` | WorkOS user ↔ business mapping |
 
 ---
 
 ## License
 
 MIT
-
----
-
-## Acknowledgments
-
-- Built on [Cloudflare Workers](https://workers.cloudflare.com/)
-- LLM powered by [OpenAI](https://openai.com/)
-- Dashboard framework by [Next.js](https://nextjs.org/)
-- UI components from [Radix UI](https://www.radix-ui.com/)
