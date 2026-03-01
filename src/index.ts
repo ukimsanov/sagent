@@ -412,7 +412,7 @@ async function handleImageServe(url: URL, env: Env): Promise<Response> {
  * /api/images/ endpoint which has direct R2 access.
  */
 function resolveImageUrl(url: string, _workerBaseUrl: string): string {
-  const dashboardBaseUrl = 'https://dashboard.ularkimsanov.com';
+  const dashboardBaseUrl = 'https://sagent.ularkimsanov.com';
 
   // Already absolute
   if (url.startsWith('http://') || url.startsWith('https://')) {
